@@ -1,0 +1,17 @@
+[package]
+name = "wobject3"
+version = "0.1.0"
+authors = ["Alistair Turnbull <welly@minworks.co.uk>"]
+rust-version = "1.63" # The version in Debian Bookworm.
+description = "A prototype for the Welly programming language, focusing on the object system"
+homepage = "https://wellylang.org"
+repository = "https://github.com/apt1002/wobject3"
+license = "BSD-2-Clause"
+keywords = ["welly", "object"]
+categories = ["compilers"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+welly-parser = "0.1.2"
