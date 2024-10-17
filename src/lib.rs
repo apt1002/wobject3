@@ -14,7 +14,7 @@ pub trait AST: Sized {
     /// Attempt to construct a `Self` given its parse [`Tree`].
     ///
     /// If you return this error, you must first `report()` at least one error.
-    fn validate(report: &mut impl FnMut(Location, &str), loc: Location, tree: &dyn Tree)
+    fn validate(report: &mut impl FnMut(Location, &str), tree: &dyn Tree)
     -> Result<Self, Invalid>;
 }
 
