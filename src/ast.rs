@@ -56,7 +56,7 @@ impl Name {
             while let Some(c) = cs.next() {
                 if !matches!(c, '_' | '0'..='9' | 'A'..='Z' | 'a'..='z') { return None; }
             }
-            Some(Name(value.clone()))
+            Some(Self(value.clone()))
         } else { None }
     }
 
@@ -69,13 +69,42 @@ impl Name {
 
 // ----------------------------------------------------------------------------
 
+/// An valid tag.
+#[derive(Debug, Clone)]
+pub struct Tag(Loc<String>);
+
+impl std::borrow::Borrow<str> for Tag {
+    fn borrow(&self) -> &str { self.0.0.borrow() }
+}
+
+impl Tag {
+    /// Returns `value` as `Self` if possible.
+    fn maybe_validate(value: &Loc<String>) -> Option<Self> {
+        let mut cs = value.0.chars();
+        if let Some(c) = cs.next() {
+            if !matches!(c, '_' | 'A'..='Z') { return None; }
+            while let Some(c) = cs.next() {
+                if !matches!(c, '_' | '0'..='9' | 'A'..='Z') { return None; }
+            }
+            Some(Self(value.clone()))
+        } else { None }
+    }
+
+    /// Returns `value` as `Self` if possible.
+    fn maybe_validate_expr(tree: &welly::Expr) -> Option<Self> {
+        if let welly::Expr::Name(s) = tree { Self::maybe_validate(s) } else { None }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 /// An expression that can appear on the left-hand side of an assignment.
 pub enum LExpr {
     Name(Name),
     Literal(Literal),
-    Field(Box<LExpr>, Name),
-    Call(Name, Loc<Vec<Expr>>),
     Tuple(Loc<Vec<LExpr>>),
+    Field(Box<LExpr>, Name),
+    Tag(Tag, Loc<Vec<Expr>>),
     Cast(Box<LExpr>, Location, Box<Expr>),
 }
 
@@ -97,6 +126,9 @@ impl LExpr {
             welly::Expr::Round(_round) => {
                 todo!();
             },
+            welly::Expr::Function(_name, params, _return_type, _body) => {
+                Err(report(params.1, "Expression is not assignable"))?
+            },
             welly::Expr::Op(left, op, right) => {
                 match *op {
                     Loc(Op::Cast, loc) => {
@@ -116,7 +148,12 @@ impl LExpr {
                 let field = Name::validate(report, field);
                 Self::Field(object?, field?)
             },
-            _ => Err(report(Location::EVERYWHERE, "Expression is not assignable"))?,
+            welly::Expr::Call(tag, args) => {
+                let tag = tag.as_ref().expect("Should have parsed as a tuple");
+                if let Some(_tag) = Tag::maybe_validate_expr(tag) {
+                    todo!();
+                } else { Err(report(args.1, "Expression is not assignable"))? }
+            },
         }))
     }
 }
@@ -138,12 +175,13 @@ impl AST for Box<LExpr> {
 pub enum Expr {
     Name(Name),
     Literal(Literal),
-    Field(Box<Expr>, Name),
-    Call(Box<Expr>, Vec<Expr>),
     Tuple(Vec<Expr>),
-    Cast(Box<LExpr>, Box<Expr>),
     Op(Box<Expr>, Loc<Op>, Box<Expr>),
     Function(Option<Name>, Vec<LExpr>, Option<Box<Type>>, Block),
+    Field(Box<Expr>, Name),
+    Tag(Tag, Loc<Vec<Expr>>),
+    Call(Box<Expr>, Vec<Expr>),
+    Cast(Box<LExpr>, Box<Expr>),
 }
 
 impl Expr {
@@ -190,7 +228,11 @@ impl Expr {
                 let field = Name::validate(report, field);
                 Self::Field(object?, field?)
             },
-            welly::Expr::Call(_fn, _args) => {
+            welly::Expr::Call(fn_, _args) => {
+                let fn_ = fn_.as_ref().expect("Should have parsed as a tuple");
+                if let Some(_tag) = Tag::maybe_validate_expr(fn_) {
+                    todo!();
+                }
                 todo!();
             },
         }))
