@@ -31,10 +31,9 @@ impl Literal {
     /// Returns `value` as `Self` if possible, otherwise reports an error.
     fn validate_integer(report: &mut impl FnMut(Location, &str), value: &Loc<String>)
     -> Result<Self, Invalid> {
-        let loc = Loc::location(value);
-        if let Ok(i) = value.parse::<u64>() { return Ok(Self::Int(Loc::new(i, loc))); }
-        if let Ok(i) = value.parse::<i64>() { return Ok(Self::Int(Loc::new(i as u64, loc))); }
-        Err(report(loc, "Invalid integer literal"))?
+        if let Ok(i) = value.0.parse::<u64>() { return Ok(Self::Int(Loc(i, value.1))); }
+        if let Ok(i) = value.0.parse::<i64>() { return Ok(Self::Int(Loc(i as u64, value.1))); }
+        Err(report(value.1, "Invalid integer literal"))?
     }
 }
 
@@ -45,13 +44,13 @@ impl Literal {
 pub struct Name(Loc<String>);
 
 impl std::borrow::Borrow<str> for Name {
-    fn borrow(&self) -> &str { self.0.borrow() }
+    fn borrow(&self) -> &str { self.0.0.borrow() }
 }
 
 impl Name {
     /// Returns `value` as `Self` if possible.
     fn maybe_validate(value: &Loc<String>) -> Option<Self> {
-        let mut cs = value.chars();
+        let mut cs = value.0.chars();
         if let Some(c) = cs.next() {
             if !matches!(c, '_' | 'A'..='Z' | 'a'..='z') { return None; }
             while let Some(c) = cs.next() {
@@ -64,9 +63,7 @@ impl Name {
     /// Returns `value` as `Self` if possible, otherwise reports an error.
     pub fn validate(report: &mut impl FnMut(Location, &str), value: &Loc<String>)
     -> Result<Self, Invalid> {
-        Ok(Name::maybe_validate(value).ok_or_else(
-            || report(Loc::location(value), "Invalid identifier")
-        )?)
+        Ok(Name::maybe_validate(value).ok_or_else(|| report(value.1, "Invalid identifier"))?)
     }
 }
 
@@ -89,34 +86,32 @@ impl LExpr {
             welly::Expr::Char(c) => Self::Literal(Literal::Char(*c)),
             welly::Expr::String(s) => Self::Literal(Literal::Str(s.clone())),
             welly::Expr::Name(s) => {
-                if let Some(c) = s.chars().next() {
+                if let Some(c) = s.0.chars().next() {
                     if matches!(c, '0'..='9') {
                         Self::Literal(Literal::validate_integer(report, s)?)
                     } else {
                         Self::Name(Name::validate(report, s)?)
                     }
-                } else { /* Impossible? */ Err(report(Loc::location(s), "Empty name"))? }
+                } else { /* Impossible? */ Err(report(s.1, "Empty name"))? }
             },
             welly::Expr::Round(_round) => {
                 todo!();
             },
             welly::Expr::Op(left, op, right) => {
-                let loc = Loc::location(op);
-                match &**op {
-                    Op::Cast => {
+                match *op {
+                    Loc(Op::Cast, loc) => {
                         let left = compulsory(left, || report(loc, "Missing left operand"))?;
                         let right = compulsory(right, || report(loc, "Missing right operand"))?;
                         let left = LExpr::validate_expr(report, &*left);
                         let right = Type::validate_expr(report, &*right);
                         Self::Cast(left?, loc, right?)
                     },
-                    Op::Missing => Err(report(loc, "Missing operator"))?,
-                    _ => Err(report(loc, "This operator does not make an assignable expression"))?,
+                    Loc(Op::Missing, loc) => Err(report(loc, "Missing operator"))?,
+                    _ => Err(report(op.1, "This operator does not make an assignable expression"))?,
                 }
             },
             welly::Expr::Field(object, field) => {
-                let loc = Loc::location(field);
-                let object = compulsory(object, || report(loc, "Missing expression before `.field`"))?;
+                let object = compulsory(object, || report(field.1, "Missing expression before `.field`"))?;
                 let object = LExpr::validate_expr(report, &*object);
                 let field = Name::validate(report, field);
                 Self::Field(object?, field?)
@@ -158,13 +153,13 @@ impl Expr {
             welly::Expr::Char(c) => Self::Literal(Literal::Char(*c)),
             welly::Expr::String(s) => Self::Literal(Literal::Str(s.clone())),
             welly::Expr::Name(s) => {
-                if let Some(c) = s.chars().next() {
+                if let Some(c) = s.0.chars().next() {
                     if matches!(c, '0'..='9') {
                         Self::Literal(Literal::validate_integer(report, s)?)
                     } else {
                         Self::Name(Name::validate(report, s)?)
                     }
-                } else { /* Impossible? */ Err(report(Loc::location(s), "Empty name"))? }
+                } else { /* Impossible? */ Err(report(s.1, "Empty name"))? }
             },
             welly::Expr::Round(_round) => {
                 todo!();
@@ -177,22 +172,20 @@ impl Expr {
                 todo!();
             },
             welly::Expr::Op(left, op, right) => {
-                let loc = Loc::location(op);
-                match &**op {
-                    Op::Cast => {
+                match *op {
+                    Loc(Op::Cast, loc) => {
                         let left = compulsory(left, || report(loc, "Missing expression"))?;
                         let right = compulsory(right, || report(loc, "Missing expression"))?;
                         let left = Expr::validate_expr(report, left);
                         let right = Type::validate_expr(report, right);
                         Self::Op(left?, *op, right?)
                     },
-                    Op::Missing => Err(report(loc, "Missing operator"))?,
+                    Loc(Op::Missing, loc) => Err(report(loc, "Missing operator"))?,
                     _ => { todo!() },
                 }
             },
             welly::Expr::Field(object, field) => {
-                let loc = Loc::location(field);
-                let object = compulsory(object, || report(loc, "Missing expression before `.field`"))?;
+                let object = compulsory(object, || report(field.1, "Missing expression before `.field`"))?;
                 let object = Expr::validate_expr(report, &*object);
                 let field = Name::validate(report, field);
                 Self::Field(object?, field?)
