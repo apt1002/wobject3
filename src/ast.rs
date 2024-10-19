@@ -275,7 +275,8 @@ pub enum Expr {
     Literal(Literal),
     Tuple(Loc<Box<[Expr]>>),
     Op(Box<Expr>, Loc<Op>, Box<Expr>),
-    Function(Option<Name>, Vec<LExpr>, Option<Box<Type>>, Block),
+    Function(Option<Name>, Loc<Box<[LExpr]>>, Option<Box<Type>>, Block),
+    FunctionType(Option<Name>, Loc<Box<[LExpr]>>, Option<Box<Type>>),
     Field(Box<Expr>, Name),
     Tag(Tag, Loc<Box<[Expr]>>),
     Call(Box<Expr>, Loc<Box<[Expr]>>),
@@ -309,12 +310,16 @@ impl Expr {
                 let (asts, trailing_comma) = tuple(report, &Self::validate_expr, round);
                 Self::bracket_or_tuple(Loc(asts?, loc), trailing_comma)
             },
-            welly::Expr::Function(name, _params, return_type, body) => {
-                let _name = optional(name, |n| Name::validate(report, n));
-                // TODO: params.
-                let _return_type = optional(return_type, |rt| Expr::validate_expr(report, rt));
-                let _body = optional(body, |b| Block::validate_brace(report, b));
-                todo!();
+            welly::Expr::Function(name, Loc(params, loc), return_type, body) => {
+                let name = optional(name, |n| Name::validate(report, n));
+                let (params, _) = tuple(report, &LExpr::validate_expr, params);
+                let return_type = optional(return_type, |rt| Expr::validate_expr(report, rt));
+                if let Some(body) = body {
+                    let body = Block::validate_brace(report, body);
+                    Self::Function(name?, Loc(params?, *loc), return_type?.map(Box::new), body?)
+                } else {
+                    Self::FunctionType(name?, Loc(params?, *loc), return_type?.map(Box::new))
+                }
             },
             welly::Expr::Op(left, op, right) => {
                 match op {
@@ -383,7 +388,7 @@ pub enum Stmt {
 
 impl Stmt {
     fn validate_stmt(_report: &mut impl FnMut(Location, &str), _tree: &welly::Stmt)
-    -> Result<Box<Self>, Invalid> {
+    -> Result<Self, Invalid> {
         todo!();
     }
 }
@@ -392,7 +397,7 @@ impl AST for Box<Stmt> {
     fn validate(report: &mut impl FnMut(Location, &str), tree: &dyn Tree)
     -> Result<Self, Invalid> {
         if let Some(tree) = tree.downcast_ref::<welly::Stmt>() {
-            Stmt::validate_stmt(report, tree)
+            Ok(Box::new(Stmt::validate_stmt(report, tree)?))
         } else {
             Err(report(Location::EVERYWHERE, "Not a statement"))?
         }
@@ -402,11 +407,26 @@ impl AST for Box<Stmt> {
 // ----------------------------------------------------------------------------
 
 /// A block of [`Stmt`]s.
-pub struct Block(Vec<Stmt>);
+pub struct Block(Box<[Stmt]>);
 
 impl Block {
-    pub fn validate_brace(_report: impl FnMut(Location, &str), _tree: &welly::Brace)
+    pub fn validate_brace(report: &mut impl FnMut(Location, &str), tree: &welly::Brace)
     -> Result<Self, Invalid> {
-        todo!();
+        let mut ret = Vec::new();
+        let mut is_valid = true;
+        for Token(Loc(result, loc)) in &tree.0 {
+            match result {
+                Ok(tree) => {
+                    if let Some(tree) = tree.downcast_ref::<welly::Stmt>() {
+                        ret.push(Stmt::validate_stmt(report, tree)?);
+                    } else {
+                        report(*loc, "Expected a statement");
+                        is_valid = false;
+                    }
+                },
+                Err(msg) => { report(*loc, msg); is_valid = false; }
+            }
+        }
+        if is_valid { Ok(Block(ret.into())) } else { Err(Invalid) }
     }
 }
