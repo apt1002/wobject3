@@ -1,5 +1,6 @@
 use welly_parser::{welly, Tree, Location, Loc, Token};
 use welly::{Op, AssignOp};
+use welly_parser::stmt::{Verb}; // TODO: Should be `welly::{...}`.
 use super::{Invalid, AST};
 
 /// Reports an error if `tree` is `None`.
@@ -342,27 +343,153 @@ type Type = Expr;
 // ----------------------------------------------------------------------------
 
 /// A `case` clause.
-pub struct Case(Location, LExpr, Block);
+pub struct Case(Location, Box<LExpr>, Block);
+
+impl AST for Case {
+    type Generous = welly_parser::stmt::Case; // TODO: Should be `welly::Case`.
+
+    fn validate(report: &mut impl FnMut(Location, &str), case: &Self::Generous)
+    -> Result<Self, Invalid> {
+        let welly_parser::stmt::Case(loc, pattern, body) = case;
+        let pattern = compulsory(pattern, || report(*loc, "Missing pattern after `case`"))?;
+        let pattern = Box::<LExpr>::validate(report, pattern);
+        let body = Block::validate(report, body);
+        Ok(Case(*loc, pattern?, body?))
+    }
+}
+
+// ----------------------------------------------------------------------------
 
 /// An `else` clause.
 pub struct Else(Location, Block);
 
+impl AST for Else {
+    type Generous = welly_parser::stmt::Else; // TODO: Should be `welly::Else`.
+
+    fn validate(report: &mut impl FnMut(Location, &str), else_: &Self::Generous)
+    -> Result<Self, Invalid> {
+        let welly_parser::stmt::Else(loc, body) = else_;
+        Ok(Else(*loc, Block::validate(report, body)?))
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 /// A statement.
 pub enum Stmt {
-    Expr(Expr),
-    Assign(LExpr, Loc<AssignOp>, Expr),
-    If(Location, Expr, Block, Option<Else>),
-    While(Location, Expr, Block, Option<Else>),
-    For(Location, LExpr, Expr, Block, Option<Else>),
-    Switch(Location, Expr, Vec<Case>, Option<Else>),
+    Empty,
+    Expr(Box<Expr>),
+    Let(Box<LExpr>, Location, Box<Expr>),
+    Set(Box<LExpr>, Location, Box<Expr>),
+    Mut(Box<LExpr>, Loc<Op>, Box<Expr>),
+    If(Location, Box<Expr>, Block, Option<Else>),
+    While(Location, Box<Expr>, Block, Option<Else>),
+    For(Location, Box<LExpr>, Box<Expr>, Block, Option<Else>),
+    Switch(Location, Box<Expr>, Box<[Case]>, Option<Else>),
+    Break(Location),
+    Continue(Location),
+    Return(Location, Option<Box<Expr>>),
+    Throw(Location, Box<Expr>),
+    Assert(Location, Box<Expr>),
+    Assume(Location, Box<Expr>),
 }
 
 impl AST for Stmt {
     type Generous = welly::Stmt;
 
-    fn validate(_report: &mut impl FnMut(Location, &str), _tree: &Self::Generous)
+    fn validate(report: &mut impl FnMut(Location, &str), tree: &Self::Generous)
     -> Result<Self, Invalid> {
-        todo!();
+        Ok(match tree {
+            welly::Stmt::Expr(expr) => {
+                if let Some(expr) = expr.as_ref() {
+                    Self::Expr(Box::<Expr>::validate(report, expr)?)
+                } else {
+                    Self::Empty
+                }
+            },
+            welly::Stmt::Assign(lhs, Loc(op, loc), rhs) => {
+                let lhs = compulsory(lhs,
+                    || report(*loc, "Missing pattern on left-hand side of assignment")
+                )?;
+                let rhs = compulsory(rhs,
+                    || report(*loc, "Missing expression on right-hand side of assignment")
+                )?;
+                let lhs = Box::<LExpr>::validate(report, lhs);
+                let rhs = Box::<Expr>::validate(report, rhs);
+                match op {
+                    AssignOp::Let => Self::Let(lhs?, *loc, rhs?),
+                    AssignOp::Set => Self::Set(lhs?, *loc, rhs?),
+                    AssignOp::Op(op) => Self::Mut(lhs?, Loc(*op, *loc), rhs?),
+                }
+            },
+            welly::Stmt::If(loc, condition, body, else_) => {
+                let condition = compulsory(condition, || report(*loc, "Missing condition"))?;
+                let condition = Box::<Expr>::validate(report, condition);
+                let body = Block::validate(report, body);
+                let else_ = Option::<Else>::validate(report, else_);
+                Self::If(*loc, condition?, body?, else_?)
+            },
+            welly::Stmt::While(loc, condition, body, else_) => {
+                let condition = compulsory(condition, || report(*loc, "Missing condition"))?;
+                let condition = Box::<Expr>::validate(report, condition);
+                let body = Block::validate(report, body);
+                let else_ = Option::<Else>::validate(report, else_);
+                Self::While(*loc, condition?, body?, else_?)
+            },
+            welly::Stmt::For(loc, item_in_sequence, body, else_) => {
+                let item_in_sequence = compulsory(item_in_sequence,
+                    || report(*loc, "Missing `in` after `for`")
+                )?;
+                if let welly::Expr::Op(item, Loc(Op::In, in_loc), sequence) = &**item_in_sequence {
+                    let item = compulsory(item,
+                        || report(*loc, "Missing item pattern after `for`")
+                    )?;
+                    let sequence = compulsory(sequence,
+                        || report(*in_loc, "Missing sequence expression after `for ... in`")
+                    )?;
+                    let item = Box::<LExpr>::validate(report, item);
+                    let sequence = Box::<Expr>::validate(report, sequence);
+                    let body = Block::validate(report, body);
+                    let else_ = Option::<Else>::validate(report, else_);
+                    Self::For(*loc, item?, sequence?, body?, else_?)
+                } else { Err(report(*loc, "Missing `in` after for"))? }
+            },
+            welly::Stmt::Switch(loc, discriminant, cases, else_) => {
+                let discriminant = compulsory(discriminant, || report(*loc, "Missing condition"))?;
+                let discriminant = Box::<Expr>::validate(report, discriminant);
+                let cases: Vec<Result<Case, Invalid>> = cases.iter().map(
+                    |case| Case::validate(report, case)
+                ).collect();
+                let cases: Result<Box<[Case]>, Invalid> = cases.into_iter().collect();
+                let else_ = Option::<Else>::validate(report, else_);
+                Self::Switch(*loc, discriminant?, cases?, else_?)
+            },
+            welly::Stmt::Verb(Loc(verb, loc), expr) => match verb {
+                Verb::Break => {
+                    if let Some(_) = expr { Err(report(*loc, "Unexpected expression after `break`"))? }
+                    Self::Break(*loc)
+                },
+                Verb::Continue => {
+                    if let Some(_) = expr { Err(report(*loc, "Unexpected expression after `continue`"))? }
+                    Self::Continue(*loc)
+                },
+                Verb::Return => {
+                    Self::Return(*loc, Option::<Box<Expr>>::validate(report, expr)?)
+                },
+                Verb::Throw => {
+                    let expr = compulsory(expr, || report(*loc, "Missing expression after `throw`"))?;
+                    Self::Throw(*loc, Box::<Expr>::validate(report, expr)?)
+                },
+                Verb::Assert => {
+                    let expr = compulsory(expr, || report(*loc, "Missing expression after `assert`"))?;
+                    Self::Assert(*loc, Box::<Expr>::validate(report, expr)?)
+                },
+                Verb::Assume => {
+                    let expr = compulsory(expr, || report(*loc, "Missing expression after `assume`"))?;
+                    Self::Assume(*loc, Box::<Expr>::validate(report, expr)?)
+                },
+            },
+        })
     }
 }
 
