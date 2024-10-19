@@ -1,4 +1,4 @@
-use welly_parser::{welly, Location, Loc, Token};
+use welly_parser::{welly, Tree, Location, Loc, Token};
 use welly::{Op, AssignOp};
 use super::{Invalid, AST};
 
@@ -19,76 +19,84 @@ fn only<T>(array: Box<[T]>) -> Result<T, Box<[T]>> {
 
 // ----------------------------------------------------------------------------
 
-/// Validates and collects a comma-separated tuple of `A`s.
+/// Represents a comma-separated tuple of `A`s in round brackets.
 ///
-/// Also returns whether there is a trailing comma.
-fn tuple<R: FnMut(Location, &str), A: AST<Generous=welly::Expr>>(
-    report: &mut R,
-    round: &welly::Round,
-) -> (Result<Box<[A]>, Invalid>, bool) {
-    struct State<'s, R, A> {
-        asts: Vec<A>,
-        report: &'s mut R,
-        is_valid: bool,
-        trailing_comma: bool,
-    }
-    
-    impl<'s, R: FnMut(Location, &str), A> State<'s, R, A> {
-        /// Report an error.
-        fn report(&mut self, loc: Location, msg: &str) {
-            (self.report)(loc, msg);
-            self.is_valid = false;
-        }
+/// The `bool` indicates if there is a trailing comma.
+pub struct Tuple<A>(pub Box<[A]>, pub bool);
 
-        /// Skip past the next comma, if any.
-        fn skip(&mut self, contents: &mut impl Iterator<Item=&'s Token>) {
-            while let Some(token) = contents.next() {
-                if *token == ',' { break; }
+impl<A> Tuple<A> {
+    /// If there's no trailing comma and exactly one element, return it.
+    /// Otherwise apply `tuple`.
+    fn bracket_or_tuple(self, tuple: impl FnOnce(Box<[A]>) -> A) -> A {
+        let Tuple(asts, trailing_comma) = self;
+        let asts = if !trailing_comma { only(asts) } else { Err(asts) };
+        asts.unwrap_or_else(|asts| tuple(asts))
+    }
+}
+
+impl<A: AST> AST for Tuple<A> where
+    <A as AST>::Generous: Tree,
+{
+    type Generous = welly::Round;
+
+    fn validate(report: &mut impl FnMut(Location, &str), round: &Self::Generous)
+    -> Result<Self, Invalid> {
+        struct State<'s, R, A> {
+            asts: Vec<A>,
+            report: &'s mut R,
+            is_valid: bool,
+            trailing_comma: bool,
+        }
+        
+        impl<R: FnMut(Location, &str), A> State<'_, R, A> {
+            /// Report an error.
+            fn report(&mut self, loc: Location, msg: &str) {
+                if self.is_valid { (self.report)(loc, msg); }
+                self.is_valid = false;
             }
-            self.trailing_comma = true;
-        }
 
-        /// Record an `A`.
-        fn push(&mut self, loc: Location, ast: A) {
-            if !self.trailing_comma { self.report(loc, "Missing comma"); }
-            self.asts.push(ast);
-            self.trailing_comma = false;
-        }
+            /// Record an `A`.
+            fn push(&mut self, loc: Location, ast: A) {
+                if !self.trailing_comma { self.report(loc, "Missing comma"); }
+                self.asts.push(ast);
+                self.trailing_comma = false;
+            }
 
-        /// Record a comma.
-        fn comma(&mut self, loc: Location) {
-            if self.trailing_comma { self.report(loc, "Missing expression"); }
-            self.trailing_comma = false;
+            /// Record a comma.
+            fn comma(&mut self, loc: Location) {
+                if self.trailing_comma { self.report(loc, "Missing expression"); }
+                self.trailing_comma = true;
+            }
         }
-    }
-    
-    let mut state = State {asts: Vec::new(), report, is_valid: true, trailing_comma: false};
-    let mut contents = round.0.iter();
-    while let Some(&Token(Loc(ref result, loc))) = contents.next() {
-        match result {
-            Ok(tree) => {
-                if let Some(tree) = tree.downcast_ref::<A::Generous>() {
-                    if let Ok(ast) = A::validate(state.report, tree) {
-                        state.push(loc, ast);
-                    } else {
-                        state.skip(&mut contents);
+        
+        let mut state = State {asts: Vec::new(), report, is_valid: true, trailing_comma: false};
+        let mut contents = round.0.iter();
+        while let Some(&Token(Loc(ref result, loc))) = contents.next() {
+            match result {
+                Ok(tree) => {
+                    if let Some(tree) = tree.downcast_ref::<A::Generous>() {
+                        if let Ok(ast) = A::validate(state.report, tree) {
+                            state.push(loc, ast);
+                        } else {
+                            state.is_valid = false;
+                        }
+                    } else if **tree == ',' {
+                        state.comma(loc);
+                    } else if state.trailing_comma {
+                        state.report(loc, "Expected an expression");
+                    } else if state.is_valid {
+                        state.report(loc, "Expected a comma");
                     }
-                } else if **tree == ',' {
-                    state.comma(loc);
-                } else {
-                    let msg = if state.trailing_comma { "Expected an expression" } else { "Expected a comma" };
+                },
+                Err(msg) => {
                     state.report(loc, msg);
-                    state.skip(&mut contents);
-                }
-            },
-            Err(msg) => {
-                state.report(loc, msg);
-                state.skip(&mut contents);
-            },
+                },
+            }
         }
+        if state.is_valid {
+            Ok(Self(state.asts.into(), state.trailing_comma))
+        } else { Err(Invalid) }
     }
-    let ret = if state.is_valid { Ok(state.asts.into()) } else { Err(Invalid) };
-    (ret, state.trailing_comma)
 }
 
 // ----------------------------------------------------------------------------
@@ -191,16 +199,6 @@ pub enum LExpr {
     Cast(Box<LExpr>, Location, Box<Type>),
 }
 
-impl LExpr {
-    /// If `!trailing_comma` and `asts` has exactly one element, returns it.
-    /// Otherwise returns a `Self::Tuple`.
-    fn bracket_or_tuple(asts: Loc<Box<[Self]>>, trailing_comma: bool) -> Self {
-        let Loc(asts, loc) = asts;
-        let asts = if !trailing_comma { only(asts) } else { Err(asts) };
-        asts.unwrap_or_else(|asts| Self::Tuple(Loc(asts, loc)))
-    }
-}
-
 impl AST for LExpr {
     type Generous = welly::Expr;
 
@@ -219,8 +217,9 @@ impl AST for LExpr {
             },
             welly::Expr::Round(round) => {
                 let loc = Location::EVERYWHERE; // TODO.
-                let (asts, trailing_comma) = tuple(report, round);
-                Self::bracket_or_tuple(Loc(asts?, loc), trailing_comma)
+                Tuple::validate(report, round)?.bracket_or_tuple(
+                    |asts| Self::Tuple(Loc(asts, loc))
+                )
             },
             welly::Expr::Function(_name, params, _return_type, _body) => {
                 Err(report(params.1, "Expression is not assignable"))?
@@ -230,9 +229,9 @@ impl AST for LExpr {
                     Loc(Op::Cast, loc) => {
                         let left = compulsory(left, || report(*loc, "Missing left operand"))?;
                         let right = compulsory(right, || report(*loc, "Missing right operand"))?;
-                        let left = Self::validate(report, &*left);
-                        let right = Type::validate(report, &*right);
-                        Self::Cast(Box::new(left?), *loc, Box::new(right?))
+                        let left = Box::<Self>::validate(report, &*left);
+                        let right = Box::<Type>::validate(report, &*right);
+                        Self::Cast(left?, *loc, right?)
                     },
                     Loc(Op::Missing, loc) => Err(report(*loc, "Missing operator"))?,
                     _ => Err(report(op.1, "This operator does not make an assignable expression"))?,
@@ -240,15 +239,15 @@ impl AST for LExpr {
             },
             welly::Expr::Field(object, field) => {
                 let object = compulsory(object, || report(field.1, "Missing expression before `.field`"))?;
-                let object = Self::validate(report, &*object);
+                let object = Box::<Self>::validate(report, &*object);
                 let field = Name::validate(report, field);
-                Self::Field(Box::new(object?), field?)
+                Self::Field(object?, field?)
             },
             welly::Expr::Call(tag, Loc(args, loc)) => {
                 let tag = tag.as_ref().expect("Should have parsed as a tuple");
-                let (args, _) = tuple(report, args);
+                let args = Tuple::validate(report, args);
                 if let Some(tag) = Tag::maybe_validate_expr(tag) {
-                    Self::Tag(tag, Loc(args?, *loc))
+                    Self::Tag(tag, Loc(args?.0, *loc))
                 } else { Err(report(*loc, "Expression is not assignable"))? }
             },
         })
@@ -271,16 +270,6 @@ pub enum Expr {
     Cast(Box<Expr>, Location, Box<Expr>),
 }
 
-impl Expr {
-    /// If `!trailing_comma` and `asts` has exactly one element, returns it.
-    /// Otherwise returns a `Self::Tuple`.
-    fn bracket_or_tuple(asts: Loc<Box<[Self]>>, trailing_comma: bool) -> Self {
-        let Loc(asts, loc) = asts;
-        let asts = if !trailing_comma { only(asts) } else { Err(asts) };
-        asts.unwrap_or_else(|asts| Self::Tuple(Loc(asts, loc)))
-    }
-}
-
 impl AST for Expr {
     type Generous = welly::Expr;
 
@@ -299,18 +288,19 @@ impl AST for Expr {
             },
             welly::Expr::Round(round) => {
                 let loc = Location::EVERYWHERE; // TODO.
-                let (asts, trailing_comma) = tuple(report, round);
-                Self::bracket_or_tuple(Loc(asts?, loc), trailing_comma)
+                Tuple::validate(report, round)?.bracket_or_tuple(
+                    |asts| Self::Tuple(Loc(asts, loc))
+                )
             },
             welly::Expr::Function(name, Loc(params, loc), return_type, body) => {
                 let name = Option::<Name>::validate(report, name);
-                let (params, _) = tuple(report, params);
+                let params = Tuple::validate(report, params);
                 let return_type = Option::<Box<Type>>::validate(report, return_type);
                 if let Some(body) = body {
                     let body = Block::validate(report, body);
-                    Self::Function(name?, Loc(params?, *loc), return_type?, body?)
+                    Self::Function(name?, Loc(params?.0, *loc), return_type?, body?)
                 } else {
-                    Self::FunctionType(name?, Loc(params?, *loc), return_type?)
+                    Self::FunctionType(name?, Loc(params?.0, *loc), return_type?)
                 }
             },
             welly::Expr::Op(left, op, right) => {
@@ -318,9 +308,9 @@ impl AST for Expr {
                     Loc(Op::Cast, loc) => {
                         let left = compulsory(left, || report(*loc, "Missing expression"))?;
                         let right = compulsory(right, || report(*loc, "Missing expression"))?;
-                        let left = Expr::validate(report, left);
-                        let right = Type::validate(report, right);
-                        Self::Cast(Box::new(left?), *loc, Box::new(right?))
+                        let left = Box::<Self>::validate(report, left);
+                        let right = Box::<Type>::validate(report, right);
+                        Self::Cast(left?, *loc, right?)
                     },
                     Loc(Op::Missing, loc) => Err(report(*loc, "Missing operator"))?,
                     _ => { todo!() },
@@ -328,18 +318,18 @@ impl AST for Expr {
             },
             welly::Expr::Field(object, field) => {
                 let object = compulsory(object, || report(field.1, "Missing expression before `.field`"))?;
-                let object = Expr::validate(report, &*object);
+                let object = Box::<Self>::validate(report, object);
                 let field = Name::validate(report, field);
-                Self::Field(Box::new(object?), field?)
+                Self::Field(object?, field?)
             },
             welly::Expr::Call(fn_, Loc(args, loc)) => {
                 let fn_ = fn_.as_ref().expect("Should have parsed as a tuple");
-                let (args, _) = tuple(report, args);
+                let args = Tuple::validate(report, args);
                 if let Some(tag) = Tag::maybe_validate_expr(fn_) {
-                    Self::Tag(tag, Loc(args?, *loc))
+                    Self::Tag(tag, Loc(args?.0, *loc))
                 } else {
-                    let fn_ = Self::validate(report, fn_);
-                    Self::Call(Box::new(fn_?), Loc(args?, *loc))
+                    let fn_ = Box::<Expr>::validate(report, fn_);
+                    Self::Call(fn_?, Loc(args?.0, *loc))
                 }
             },
         })
