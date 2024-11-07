@@ -50,45 +50,53 @@ pub enum Terminal {
 ///
 /// Registers:
 /// - `P0`, ... are values in the constant pool.
-/// - `Q` is the accumulator. `0` on entry to a block and discarded on exit.
+/// - `Q` is the accumulator.
+/// - `Q0`, ... are the fields of `Q`, or undefined if `Q` is not a tuple.
 /// - `R0`, ... are values on the stack.
 ///   - `R0` is the bottom of the stack.
 ///   - `Rtop` is the top of the stack.
-/// - `S` is the `self` register.
-/// - `S0`, ... are the fields of `S`, or undefined if `S` is not a tuple.
 #[derive(Debug)]
 pub enum Instruction {
     /// Discard `Q` (decrease its reference count), then pop it from the stack.
     Pop,
 
-    /// Push a copy of `Q` onto the stack (increase its reference count).
-    Push,
-
-    /// Discard `Q` and replace it with a copy of `Pn`.
+    /// Push `Q` and replace it with a copy of `Pn` (increasing its reference
+    /// count).
     PDup(Pos),
 
-    /// Discard the accumulator and replace it with a copy of `Rn`.
+    /// Push `Q` and replace it with a copy of `Qn` (increasing its reference
+    /// count).
+    QDup(Pos),
+
+    /// Push `Q` and replace it with a copy of `Rn` (increasing its reference
+    /// count).
     RDup(Pos),
 
-    /// Discard the accumulator and replace it with a copy of `Sn`.
-    SDup(Pos),
+    /// Swap `Rtop` with `Qn`.
+    Q(Pos),
 
     /// Swap `Q` with `Rn`.
     R(Pos),
 
-    /// Swap `Q` with `Sn`.
-    S(Pos),
-
-    /// Swap `Q` with `S`.
-    QS,
-
     /// Call `Q`'s method `tag`, passing `Rn`, ..., `Rtop`.
+    ///
+    /// `Q` must be a `Value::Object`, and `tag` must match one of its methods.
+    /// On entry to the callee, `Q` is the `self` value of the object.
+    /// On exit, the `self` value of the object is replaced by `Q`.
+    /// `Rn, ..., Rtop` are replaced by the callee's stack.
     Call(Tag, Pos),
 
     /// Infinite loop.
     Loop(Code),
 
     /// Switch on the top item.
+    ///
+    /// If `Q` is `Value::Structure(tag, v1, ..., v_n)` and the [`Table`]
+    /// contains the key `tag`, we execute that case as follows:
+    /// - Push `v1` to `v_n`.
+    /// - Pop `Q`.
+    /// - Run the [`Code`] corresponding to `key`.
+    /// Otherwise, we execute the `else` `Code`
     Switch(Table, Option<Code>),
 }
 
