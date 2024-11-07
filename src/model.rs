@@ -1,6 +1,14 @@
 use std::rc::{Rc};
 
-use super::code::{Tag, Table, Code};
+// ----------------------------------------------------------------------------
+
+/// Represents a Welly constructor.
+///
+/// In source code, a `Tag`s is written as a name consisting only of capital
+/// letters, digits and underscores and not beginning with a digit.
+// TODO: Represent as a 64-bit integer.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Tag(Rc<str>);
 
 // ----------------------------------------------------------------------------
 
@@ -27,14 +35,20 @@ impl std::ops::Deref for Tuple {
 
 // ----------------------------------------------------------------------------
 
-/// The compile-time constant part of an object.
-#[derive(Debug)]
-pub struct Combinator(Box<[Value]>, Table);
-
-impl Combinator {
-    pub fn pool(&self) -> &[Value] { &self.0 }
-    pub fn get(&self, tag: &Tag) -> &Code { self.1.get(tag).expect("No such method") }
+/// A virtual method table. Every object has one of these.
+///
+/// The purpose of this trait is to hide the implementation of code from the
+/// data model, such that `Value` does not depend on it. As a bonus, it allows
+/// using more than one kind of code at the same time.
+pub trait Call: std::fmt::Debug {
+    /// Call method `tag` of `args.last()`, passing `args`.
+    ///
+    /// - tag - which method of the object to call.
+    /// - args - the arguments in right-to-left order, followed by the object.
+    fn call(&self, tag: &Tag, args: Vec<Value>) -> Vec<Value>;
 }
+
+// ----------------------------------------------------------------------------
 
 /// A first-class Welly value.
 ///
@@ -43,5 +57,5 @@ impl Combinator {
 pub enum Value {
     Integer(u64),
     Structure(Tag, Tuple),
-    Object(Rc<Combinator>, Box<Value>),
+    Object(Rc<dyn Call>, Box<Value>),
 }
