@@ -1,6 +1,7 @@
 use std::collections::{HashMap};
+use std::rc::{Rc};
 
-use super::model::{Tag, Call, Value};
+use super::model::{Tag, Tuple, Call, Value};
 
 /// Represents a stack position, with `Pos(0)` being the bottom of the stack.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -61,6 +62,9 @@ pub enum Instruction {
     /// Swap `Q` with `Rn`.
     R(Pos),
 
+    /// Construct a closure with the specified methods and `Q` as `self`.
+    New(Rc<dyn Call>),
+
     /// Call `Q`'s method `tag`, passing `Rn`, ..., `Rtop`.
     ///
     /// `Q` must be a `Value::Object`, and `tag` must match one of its methods.
@@ -71,6 +75,9 @@ pub enum Instruction {
 
     /// Infinite loop.
     Loop(Code),
+
+    /// Construct a tagged tuple with fields `Rn, ..., Rtop, Q`.
+    Tag(Tag, Pos),
 
     /// Switch on the top item.
     ///
@@ -129,6 +136,9 @@ impl Code {
             Instruction::R(n) => {
                 std::mem::swap(&mut q, &mut r[n.as_usize()]);
             },
+            Instruction::New(methods) => {
+                q = Value::Object(methods.clone(), Box::new(q));
+            },
             Instruction::Call(tag, n) => {
                 if let Value::Object(methods, self_) = q {
                     r.push(*self_);
@@ -151,6 +161,11 @@ impl Code {
                     }
                 }
                 q = r.pop().expect("Underflow");
+            },
+            Instruction::Tag(tag, n) => {
+                r.push(q);
+                let args: Vec<Value> = r.drain(n.as_usize()..).collect();
+                q = Value::Structure(tag.clone(), Tuple::new(args));
             },
             Instruction::Switch(table, else_) => {
                 if let Value::Structure(tag, tuple) = q {

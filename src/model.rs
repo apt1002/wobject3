@@ -17,6 +17,8 @@ pub struct Tag(Rc<str>);
 pub struct Tuple(Rc<[Value]>);
 
 impl Tuple {
+    pub fn new(args: impl Into<Rc<[Value]>>) -> Self { Self(args.into()) }
+
     /// If `self` is not the only reference to the data, clone the data so that
     /// it is. Then, mutably borrow the data.
     pub fn make_mut(&mut self) -> &mut [Value] {
