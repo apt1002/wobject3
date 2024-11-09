@@ -1,3 +1,4 @@
+use std::{fmt};
 use std::rc::{Rc};
 
 // ----------------------------------------------------------------------------
@@ -9,6 +10,22 @@ use std::rc::{Rc};
 // TODO: Represent as a 64-bit integer.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Tag(Rc<str>);
+
+// ----------------------------------------------------------------------------
+
+/// A 64-bit word that is not a pointer.
+#[derive(Copy, Clone)]
+pub union Word {
+    pub u: u64,
+    pub s: i64,
+    pub f: f64,
+}
+
+impl fmt::Debug for Word {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:x}", unsafe { self.u })
+    }
+}
 
 // ----------------------------------------------------------------------------
 
@@ -57,7 +74,7 @@ pub trait Call: std::fmt::Debug {
 /// Values can be held in variables and passed to functions.
 #[derive(Debug, Clone)]
 pub enum Value {
-    Integer(u64),
+    Word(Word),
     Structure(Tag, Tuple),
     Object(Rc<dyn Call>, Box<Value>),
 }
