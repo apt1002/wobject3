@@ -1,5 +1,6 @@
-pub mod code;
 pub mod model;
+pub mod code;
+pub mod built_in;
 
 // ----------------------------------------------------------------------------
 
