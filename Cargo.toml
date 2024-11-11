@@ -16,3 +16,4 @@ edition = "2021"
 [dependencies]
 welly-parser = "=0.3.0"
 ansi_term = "0.12.1"
+arrayvec = "0.7.6"

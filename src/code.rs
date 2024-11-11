@@ -1,7 +1,7 @@
 use std::collections::{HashMap};
 use std::rc::{Rc};
 
-use super::model::{Tag, Tuple, Call, Value};
+use super::model::{Tag, Value, Constructor, Tuple, NewTuple};
 
 /// Represents a stack position, with `Pos(0)` being the bottom of the stack.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,10 +33,9 @@ pub enum Terminal {
 /// An instruction that can fall through.
 ///
 /// Registers:
-/// - `P0`, ... are values in the constant pool.
 /// - `Q` is the accumulator.
 /// - `Q0`, ... are the fields of `Q`, or undefined if `Q` is not a tuple.
-/// - `R0`, ... are values on the stack.
+/// - `R0`, ... are [`Value`]s on the stack.
 ///   - `R0` is the bottom of the stack.
 ///   - `Rtop` is the top of the stack.
 #[derive(Debug)]
@@ -63,29 +62,24 @@ pub enum Instruction {
     R(Pos),
 
     /// Construct a closure with the specified methods and `Q` as `self`.
-    New(Rc<dyn Call>),
+    New(Rc<dyn NewTuple>, Pos),
 
     /// Call `Q`'s method `tag`, passing `Rn`, ..., `Rtop`.
     ///
-    /// `Q` must be a `Value::Object`, and `tag` must match one of its methods.
-    /// On entry to the callee, `Q` is the `self` value of the object.
-    /// On exit, the `self` value of the object is replaced by `Q`.
-    /// `Rn, ..., Rtop` are replaced by the callee's stack.
+    /// `tag` must match one of the methods of the [`Value`] `Q`.
+    /// On exit, `Rn, ..., Rtop` are replaced by the callee's stack.
+    /// `Q` is passed to the callee on entry, and returned on exit.
+    /// Methods that wish to consume `Q` should return a dummy value in `Q`,
+    /// e.g. the integer `0`.
     Call(Tag, Pos),
 
     /// Infinite loop.
     Loop(Code),
 
-    /// Construct a tagged tuple with fields `Rn, ..., Rtop, Q`.
-    Tag(Tag, Pos),
-
     /// Switch on the top item.
     ///
-    /// If `Q` is `Value::Structure(tag, v1, ..., v_n)` and the [`Table`]
-    /// contains the key `tag`, we execute that case as follows:
-    /// - Push `v1` to `v_n`.
-    /// - Pop `Q`.
-    /// - Run the [`Code`] corresponding to `key`.
+    /// If `Q.methods` is a [`Tag`] `tag` and the [`Table`] contains the key
+    /// `tag`, run the corresponding [`Code`].
     /// Otherwise, we execute the `else` `Code`
     Switch(Table, Option<Code>),
 }
@@ -101,8 +95,7 @@ impl Code {
     pub fn terminal(&self) -> Terminal { self.1 }
 
     /// Execute a basic block.
-    pub fn run(&self, r: &mut Vec<Value>) -> Terminal {
-        let mut q = r.pop().expect("Underflow");
+    pub fn run(&self, mut q: Value, r: &mut Vec<Value>) -> (Value, Terminal) {
         for instruction in self.instructions() { match instruction {
             Instruction::Pop => {
                 q = r.pop().expect("Underflow");
@@ -112,11 +105,7 @@ impl Code {
                 q = v.clone();
             },
             Instruction::QDup(n) => {
-                let new_q = if let Value::Structure(_, q) = &q {
-                    q[n.as_usize()].clone()
-                } else {
-                    panic!("Q register is not a structure");
-                };
+                let new_q = q.0.tuple_ref()[n.as_usize()].clone();
                 r.push(q);
                 q = new_q;
             },
@@ -125,69 +114,45 @@ impl Code {
                 q = r[n.as_usize()].clone();
             },
             Instruction::Q(n) => {
-                if let Value::Structure(_, q) = &mut q {
-                    let q = q.make_mut(); // Clone-on-write.
-                    let r_top = r.last_mut().expect("Underflow");
-                    std::mem::swap(r_top, &mut q[n.as_usize()]);
-                } else {
-                    panic!("Q is not a structure");
-                }
+                let q_mut = q.make_mut().tuple_mut(); // Clone-on-write.
+                let r_top = r.last_mut().expect("Underflow");
+                std::mem::swap(r_top, &mut q_mut[n.as_usize()]);
             },
             Instruction::R(n) => {
                 std::mem::swap(&mut q, &mut r[n.as_usize()]);
             },
-            Instruction::New(methods) => {
-                q = Value::Object(methods.clone(), Box::new(q));
+            Instruction::New(constructor, n) => {
+                r.push(q);
+                q = constructor.clone().new_tuple(r.drain(n.as_usize()..))
             },
             Instruction::Call(tag, n) => {
-                if let Value::Object(methods, self_) = q {
-                    r.push(*self_);
-                    let args: Vec<Value> = r.drain(n.as_usize()..).collect();
-                    let rets = methods.call(tag, args);
-                    r.extend(rets);
-                    let self_ = r.pop().expect("Underflow");
-                    q = Value::Object(methods, Box::new(self_));
-                } else {
-                    panic!("Called a non-object");
-                }
+                let args: Vec<Value> = r.drain(n.as_usize()..).collect();
+                let rets: Vec<Value>;
+                (q, rets) = q.0.call(tag, args);
+                r.extend(rets);
             },
             Instruction::Loop(code) => {
-                r.push(q);
                 loop {
-                    match code.run(r) {
-                        Terminal::Return => { return Terminal::Return; }
+                    let terminal: Terminal;
+                    (q, terminal) = code.run(q, r);
+                    match terminal {
+                        Terminal::Return => { return (q, Terminal::Return); }
                         Terminal::Break => { break; }
                         _ => {}
                     }
                 }
-                q = r.pop().expect("Underflow");
-            },
-            Instruction::Tag(tag, n) => {
-                r.push(q);
-                let args: Vec<Value> = r.drain(n.as_usize()..).collect();
-                q = Value::Structure(tag.clone(), Tuple::new(args));
             },
             Instruction::Switch(table, else_) => {
-                if let Value::Structure(tag, tuple) = q {
-                    let code = if let Some(code) = table.get(&tag) {
-                        r.extend(tuple.iter().cloned());
-                        code
-                    } else if let Some(code) = else_ {
-                        r.push(Value::Structure(tag, tuple));
-                        code
-                    } else {
-                        panic!("Switch is not exhaustive");
-                    };
-                    match code.run(r) {
-                        Terminal::FallThrough => {},
-                        terminal => { return terminal; }
-                    }
-                    q = r.pop().expect("Underflow");
+                let code = table.get(q.0.tag()).or(else_.as_ref()).expect("Switch is not exhaustive");
+                let terminal: Terminal;
+                (q, terminal) = code.run(q, r);
+                match terminal {
+                    Terminal::FallThrough => {},
+                    terminal => { return (q, terminal); }
                 }
             },
         }}
-        r.push(q);
-        self.terminal()
+        (q, self.terminal())
     }
 
 }
@@ -202,14 +167,21 @@ impl Table {
     pub fn get(&self, tag: &Tag) -> Option<&Code> { self.0.get(tag) }
 }
 
-impl Call for Table {
-    fn call(&self, tag: &Tag, mut args: Vec<Value>) -> Vec<Value> {
+impl Constructor for Table {
+    fn call<const N: usize>(
+        &self,
+        object: Rc<Tuple<Self, N>>,
+        tag: &Tag,
+        mut args: Vec<Value>,
+    ) -> (Value, Vec<Value>)
+    where Self: Sized {
         let code = self.get(tag).expect("No such method");
-        match code.run(&mut args) {
+        let (object, terminal) = code.run(Value(object), &mut args);
+        match terminal {
             Terminal::Break => panic!("Break at top level"),
             Terminal::Continue => panic!("Continue at top level"),
             _ => {},
         }
-        args
+        (object, args)
     }
 }

@@ -1,13 +1,9 @@
 use std::collections::{HashMap};
 use std::{fmt};
+use std::rc::{Rc};
 
 use super::{model};
-use model::{Tag, Word, Call, Value};
-
-/// Returns the [`Word`] in `v`, or panics if it's not a [`Value::Word`].
-fn to_word(v: Value) -> Word {
-    if let Value::Word(w) = v { w } else { panic!("Not a Word") }
-}
+use model::{Tag, Word, Object, Value};
 
 type Unary = &'static dyn Fn(Word) -> Word;
 type Binary = &'static dyn Fn(Word, Word) -> Word;
@@ -22,22 +18,34 @@ impl fmt::Debug for BuiltIn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str(self.name) }
 }
 
-impl Call for BuiltIn {
-    fn call(&self, tag: &Tag, args: Vec<Value>) -> Vec<Value> {
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct Primitive {
+    methods: Rc<BuiltIn>,
+    data: Word,
+}
+
+impl Object for Primitive {
+    fn call(mut self: Rc<Self>, tag: &Tag, args: Vec<Value>) -> (Value, Vec<Value>) {
         let mut args = args.into_iter();
-        match (args.next(), args.next(), args.next()) {
-            (None, _, _) => panic!("Not enough arguments"),
-            (Some(x), None, _) => {
-                let unary = self.unary.get(tag).expect("No such unary method");
-                vec![Value::Word(unary(to_word(x)))]
+        let ret = match (args.next(), args.next()) {
+            (None, _) => {
+                let unary = self.methods.unary.get(tag).expect("No such unary method");
+                unary(self.data)
             },
-            (Some(x), Some(y), None) => {
-                let binary = self.binary.get(tag).expect("No such binary method");
-                vec![Value::Word(binary(to_word(x), to_word(y)))]
+            (Some(y), None) => {
+                let binary = self.methods.binary.get(tag).expect("No such binary method");
+                binary(self.data, y.0.word())
             },
             _ => panic!("Too many arguments"),
-        }
+        };
+        Rc::make_mut(&mut self).data = ret;
+        (Value(self), Vec::new())
     }
+
+    fn word(&self) -> Word { self.data }
+    fn dyn_clone(&self) -> Rc<dyn Object> { Rc::new(self.clone()) }
 }
 
 // ----------------------------------------------------------------------------
