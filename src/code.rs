@@ -52,7 +52,7 @@ pub enum Instruction {
     QDup(Pos),
 
     /// Push `Q` and replace it with a copy of `Rn` (increasing its reference
-    /// count).
+    /// count). Note that this can be used to clone `Q` itself.
     RDup(Pos),
 
     /// Swap `Rtop` with `Qn`.

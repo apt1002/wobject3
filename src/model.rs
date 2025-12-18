@@ -117,7 +117,7 @@ impl Value {
     /// An abbreviation for `Value(Rc::new(v))`.
     pub fn new<T: 'static + Object>(v: T) -> Self { Self(Rc::new(v)) }
 
-    /// Ensure `self` is shared, using [`Object::dyn_clone()`] if necessary.
+    /// Ensure `self` is unshared, using [`Object::dyn_clone()`] if necessary.
     /// Then, borrow it mutably.
     pub fn make_mut(&mut self) -> &mut dyn Object {
         if Rc::get_mut(&mut self.0).is_none() { self.0 = self.0.dyn_clone(); }
