@@ -1,19 +1,15 @@
 use super::{model, Unary, Binary, BuiltIn};
 use model::{Tag};
 
-const UNARY: [(&'static str, Unary); 3] = [
+const UNARY: [(&'static str, Unary); 2] = [
     ("NEG", &|x| (-x.w()).into()),
-    ("BIT_NOT", &|x| (!x.w()).into()),
     ("BOOL_NOT", &|x| (!x.b()).into()),
 ];
 
-const BINARY: [(&'static str, Binary); 11] = [
+const BINARY: [(&'static str, Binary); 8] = [
     ("ADD", &|x, y| (x.w() + y.w()).into()),
     ("SUB", &|x, y| (x.w() - y.w()).into()),
     ("MUL", &|x, y| (x.w() * y.w()).into()),
-    ("BIT_AND", &|x, y| (x.u() & y.u()).into()),
-    ("BIT_OR", &|x, y| (x.u() | y.u()).into()),
-    ("BIT_XOR", &|x, y| (x.u() ^ y.u()).into()),
     ("EQ", &|x, y| (x.u() == y.u()).into()),
     ("LE", &|x, y| (x.s() <= y.s()).into()),
     ("ULE", &|x, y| (x.u() <= y.u()).into()),
