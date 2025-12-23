@@ -1,17 +1,15 @@
-use std::collections::{HashMap};
 use std::{fmt};
-use std::rc::{Rc};
 
 use super::{model};
-use model::{Tag, Word};
+use model::{Map, Word};
 
 type Unary = &'static dyn Fn(Word) -> Word;
 type Binary = &'static dyn Fn(Word, Word) -> Word;
 
 pub struct BuiltIn {
-    name: &'static str,
-    unary: HashMap<Tag, Unary>,
-    binary: HashMap<Tag, Binary>,
+    pub name: &'static str,
+    pub unary: Map<Unary>,
+    pub binary: Map<Binary>,
 }
 
 impl fmt::Debug for BuiltIn {
@@ -19,12 +17,6 @@ impl fmt::Debug for BuiltIn {
 }
 
 // ----------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub struct Primitive {
-    methods: Rc<BuiltIn>,
-    data: Word,
-}
 
 mod integer;
 pub use integer::{compile_integer};

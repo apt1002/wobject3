@@ -1,5 +1,4 @@
-use super::{model, Unary, Binary, BuiltIn};
-use model::{Tag};
+use super::{Unary, Binary, BuiltIn};
 
 const UNARY: [(&'static str, Unary); 2] = [
     ("NEG", &|x| (-x.w()).into()),
@@ -21,7 +20,7 @@ const BINARY: [(&'static str, Binary); 8] = [
 pub fn compile_integer() -> BuiltIn {
     BuiltIn {
         name: "Integer",
-        unary: UNARY.iter().map(|(name, f)| (Tag::new(name), *f)).collect(),
-        binary: BINARY.iter().map(|(name, f)| (Tag::new(name), *f)).collect(),
+        unary: UNARY.iter().map(|(name, f)| ((*name).into(), *f)).collect(),
+        binary: BINARY.iter().map(|(name, f)| ((*name).into(), *f)).collect(),
     }
 }
