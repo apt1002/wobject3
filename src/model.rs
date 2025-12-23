@@ -61,9 +61,6 @@ impl From<bool> for Word { fn from(v: bool) -> Self { Self { s: -(v as i64) } } 
 /// Occupies three machine words.
 #[derive(Clone)]
 pub enum Value {
-    /// An uninitialised `Value`.
-    None,
-
     /// Something represented as a `Word`, e.g. an `Int` or `Float`.
     Word(Word),
 
@@ -77,7 +74,7 @@ pub enum Value {
     Map(Rc<Map<Value>>),
 
     /// A [`Dynamic`].
-    Dynamic(Rc<Dynamic>),
+    Dynamic(Option<Rc<Dynamic>>),
 }
 
 impl Value {
@@ -106,10 +103,14 @@ impl Value {
     }
 
     /// Assert that `self` is a `Dynamic`.
-    pub fn dynamic(&self) -> &Dynamic {
+    pub fn dynamic(&self) -> &Option<Rc<Dynamic>> {
         let Self::Dynamic(ret) = self else { panic!("{:?} is not a dynamic", self); };
         ret
     }
+
+    /// A place-holder for uninitialised `Value`s.
+    /// This is unlikely to be accidentally interepreted as a useful `Value`.
+    pub const UNINITIALISED: Self = Self::Dynamic(None);
 
     /// Assert that `self` is a tuple of size `N`.
     pub fn unpack<const N: usize>(&self) -> &[Value; N] {
@@ -122,18 +123,18 @@ impl Value {
 }
 
 impl std::default::Default for Value {
-    fn default() -> Self { Value::None }
+    fn default() -> Self { Value::UNINITIALISED }
 }
 
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::None => f.debug_tuple("None").finish(),
             Self::Word(word) => format!("{:x}", word.u()).fmt(f),
             Self::Str(string) => string.fmt(f),
             Self::Slice(values) => values.fmt(f),
             Self::Map(map) => map.fmt(f),
-            Self::Dynamic(dynamic) => dynamic.fmt(f),
+            Self::Dynamic(None) => { f.debug_tuple("UNINITIALISED").finish() },
+            Self::Dynamic(Some(dynamic)) => dynamic.fmt(f),
         }
     }
 }
@@ -155,8 +156,21 @@ impl<const N: usize> From<[Value; N]> for Value {
 /// Represents a dynamically typed value.
 ///
 /// The dynamic type is another `Dynamic`; it is therefore a linked list.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Dynamic {
     pub type_: Option<Rc<Dynamic>>,
     pub value: Value,
+}
+
+impl fmt::Debug for Dynamic {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut t = f.debug_tuple("Dynamic");
+        let mut dynamic = self;
+        loop {
+            t.field(&dynamic.value);
+            let Some(ref type_) = dynamic.type_ else { break; };
+            dynamic = &**type_;
+        }
+        t.finish()
+    }
 }
