@@ -40,20 +40,23 @@ impl Opcode {
     /// Abandon the current code array and execute another instead.
     pub const JUMP: Self = Self(7);
 
+    /// Call the top item of the stack, passing the next item.
+    pub const CALL: Self = Self(8);
+
+    /// Push a block onto the stack and execute it repeatedly.
+    pub const LOOP: Self = Self(9);
+
     /// Drop the top item of the data stack.
-    pub const DROP: Self = Self(8);
+    pub const DROP: Self = Self(10);
 
     /// Push a literal [`Value`] onto the data stack.
-    pub const LITERAL: Self = Self(9);
+    pub const LITERAL: Self = Self(11);
 
     /// Pack items on top of the data stack into a tuple on the data stack.
-    pub const PACK: Self = Self(10);
+    pub const PACK: Self = Self(12);
 
     /// Unpack the tuple on top of the data stack onto the data stack.
-    pub const UNPACK: Self = Self(11);
-
-    /// Tag the top item of the stack.
-    pub const CALL: Self = Self(12);
+    pub const UNPACK: Self = Self(13);
 }
 
 // ----------------------------------------------------------------------------

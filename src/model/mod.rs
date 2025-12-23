@@ -21,6 +21,3 @@ pub type Map<T> = std::collections::HashMap<Name, T>;
 
 mod repr;
 pub use repr::{Word, Value, Dynamic};
-
-mod code;
-pub use code::{Opcode, call};
