@@ -1,3 +1,5 @@
+use std::num::{Wrapping};
+
 use super::{Bytes, Map, Value};
 
 /// A `T` or a panic message represented as `Bytes`.
@@ -187,7 +189,11 @@ impl Opcode {
 
     pub const INT_SIGNED_LESS_THAN: Self = Opcode(Self::INT_START + 0x08);
     pub const INT_UNSIGNED_LESS_THAN: Self = Opcode(Self::INT_START + 0x09);
+
+    /// Pop `y`. Pop `x`. Compute `q = floor(x/y)`. Push `q`. Push `x - q * y`.
     pub const INT_SIGNED_DIVIDE_REMAINDER: Self = Opcode(Self::INT_START + 0x0A);
+
+    /// Pop `y`. Pop `x`. Compute `q = floor(x/y)`. Push `q`. Push `x - q * y`.
     pub const INT_UNSIGNED_DIVIDE_REMAINDER: Self = Opcode(Self::INT_START + 0x0B);
 
     pub const INT_SIGNED_SHIFT_RIGHT: Self = Opcode(Self::INT_START + 0x0C);
@@ -238,6 +244,9 @@ impl<'a> Frame<'a> {
     /// Pop a value from the stack.
     fn pop(&mut self) -> Value { self.r.pop().expect("Pop") }
 
+    /// Push `value` into the stack.
+    fn push(&mut self, value: impl Into<Value>) { self.r.push(value.into()) }
+
     /// Peek at the top value on the stack.
     fn top(&mut self) -> &mut Value { self.r.last_mut().expect("Top") }
 
@@ -272,7 +281,7 @@ impl<'a> Frame<'a> {
                     let function = self.pop();
                     let function = function.values();
                     let argument = self.pop();
-                    self.r.push(call(&**function, argument)?);
+                    self.push(call(&**function, argument)?);
                 },
                 Opcode::RETURN => { return Ok(self.pop()); },
                 Opcode::JUMP => {
@@ -286,21 +295,21 @@ impl<'a> Frame<'a> {
                     let top = self.pop();
                     let [tag, payload] = top.unpack();
                     self.jump(cases[tag.bytes()].values());
-                    self.r.push(payload.clone());
+                    self.push(payload.clone());
                 },
                 Opcode::DROP => { let _ = self.pop(); },
                 Opcode::LITERAL => {
                     let value = self.fetch();
-                    self.r.push(value.clone());
+                    self.push(value.clone());
                 },
                 Opcode::SHARE => {
                     let value = self.top().clone();
-                    self.r.push(value);
+                    self.push(value);
                 },
                 Opcode::SWAP => {
                     let mut value = self.pop();
                     std::mem::swap(&mut value, self.top());
-                    self.r.push(value);
+                    self.push(value);
                 },
                 Opcode::LOCAL_DROP => {
                     let name = self.fetch_bytes();
@@ -313,7 +322,7 @@ impl<'a> Frame<'a> {
                 },
                 Opcode::LOCAL_SHARE => {
                     let name = self.fetch_bytes();
-                    self.r.push(self.v[name].clone());
+                    self.push(self.v[name].clone());
                 },
                 Opcode::LOCAL_SWAP => {
                     let name = self.fetch_bytes();
@@ -325,7 +334,7 @@ impl<'a> Frame<'a> {
                 Opcode::PACK => {
                     let arity = self.fetch_usize();
                     let tuple: Vec<Value> = self.r.drain((self.r.len() - arity) ..).collect();
-                    self.r.push(Value::Values(tuple.into()));
+                    self.push(Value::Values(tuple.into()));
                 },
                 Opcode::UNPACK => {
                     let arity = self.fetch_usize();
@@ -342,17 +351,17 @@ impl<'a> Frame<'a> {
                 Opcode::MAP_SHARE => {
                     let name = self.fetch_bytes();
                     let value = self.top().map()[name].clone();
-                    self.r.push(value);
+                    self.push(value);
                 },
                 Opcode::TAG => {
                     let tag = Value::Bytes(self.fetch().bytes().clone());
                     let value = self.pop();
-                    self.r.push([tag, value].into());
+                    self.push([tag, value]);
                 },
                 Opcode::CLONE => { self.top().make_mut(); },
                 Opcode::STRING_LENGTH => {
                     let l = self.pop().bytes().0.len() as u64;
-                    self.r.push(l.into());
+                    self.push(l);
                 },
                 Opcode::STRING_SET_ITEM => {
                     let v = self.pop().word().u() as u8;
@@ -362,7 +371,7 @@ impl<'a> Frame<'a> {
                 Opcode::STRING_GET_ITEM => {
                     let i = self.pop().word().u() as usize;
                     let v = self.pop().bytes().0[i];
-                    self.r.push((v as u64).into());
+                    self.push(v as u64);
                 },
                 Opcode::STRING_SWAP_ITEM => {
                     let mut v = self.pop().word().u() as u8;
@@ -371,7 +380,7 @@ impl<'a> Frame<'a> {
                 },
                 Opcode::STRING_NEW => {
                     let l = self.pop().word().u() as usize;
-                    self.r.push(Value::Bytes(Bytes(std::iter::repeat(0u8).take(l).collect())));
+                    self.push(Bytes(std::iter::repeat(0u8).take(l).collect()));
                 },
                 Opcode::STRING_SET_RANGE => {
                     let t = self.pop();
@@ -386,7 +395,7 @@ impl<'a> Frame<'a> {
                     let l = self.pop().word().u() as usize;
                     let i = self.pop().word().u() as usize;
                     let s = self.pop();
-                    self.r.push(Value::Bytes(s.bytes().0[i..][..l].into()));
+                    self.push(&s.bytes().0[i..][..l]);
                 },
                 Opcode::STRING_SWAP_RANGE => {
                     let mut t = self.pop();
@@ -398,11 +407,11 @@ impl<'a> Frame<'a> {
                     for j in 0..ts.len() {
                         std::mem::swap(&mut s[i + j], &mut ts[j]);
                     }
-                    self.r.push(t);
+                    self.push(t);
                 },
                 Opcode::ARRAY_LENGTH => {
                     let l = self.pop().values().len() as u64;
-                    self.r.push(l.into());
+                    self.push(l);
                 },
                 Opcode::ARRAY_SET_ITEM => {
                     let v = self.pop();
@@ -412,7 +421,7 @@ impl<'a> Frame<'a> {
                 Opcode::ARRAY_GET_ITEM => {
                     let i = self.pop().word().u() as usize;
                     let v = self.top().values()[i].clone();
-                    self.r.push(v);
+                    self.push(v);
                 },
                 Opcode::ARRAY_SWAP_ITEM => {
                     let mut v = self.pop();
@@ -421,7 +430,7 @@ impl<'a> Frame<'a> {
                 },
                 Opcode::ARRAY_NEW => {
                     let l = self.pop().word().u() as usize;
-                    self.r.push(Value::Values(std::iter::repeat(Value::UNINITIALISED).take(l).collect()));
+                    self.push(Value::Values(std::iter::repeat(Value::UNINITIALISED).take(l).collect()));
                 },
                 Opcode::ARRAY_SET_RANGE => {
                     let t = self.pop();
@@ -436,7 +445,7 @@ impl<'a> Frame<'a> {
                     let l = self.pop().word().u() as usize;
                     let i = self.pop().word().u() as usize;
                     let s = self.pop();
-                    self.r.push(Value::Values(s.values()[i..][..l].into()));
+                    self.push(&s.values()[i..][..l]);
                 },
                 Opcode::ARRAY_SWAP_RANGE => {
                     let mut t = self.pop();
@@ -448,7 +457,118 @@ impl<'a> Frame<'a> {
                     for j in 0..ts.len() {
                         std::mem::swap(&mut s[i + j], &mut ts[j]);
                     }
-                    self.r.push(t);
+                    self.push(t);
+                },
+                Opcode::INT_ADD => {
+                    let y = self.pop().word().w();
+                    let x = self.pop().word().w();
+                    self.push(x + y);
+                },
+                Opcode::INT_MULTIPLY => {
+                    let y = self.pop().word().w();
+                    let x = self.pop().word().w();
+                    self.push(x * y);
+                },
+                Opcode::INT_EQUAL => {
+                    let y = self.pop().word().s();
+                    let x = self.pop().word().s();
+                    self.push(x == y);
+                },
+                Opcode::INT_NEGATE => {
+                    let x = self.pop().word().w();
+                    self.push(-x);
+                },
+                Opcode::INT_AND => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().u();
+                    self.push(x & y);
+                },
+                Opcode::INT_OR => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().u();
+                    self.push(x | y);
+                },
+                Opcode::INT_XOR => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().u();
+                    self.push(x ^ y);
+                },
+                Opcode::INT_INVERT => {
+                    let x = self.pop().word().u();
+                    self.push(!x);
+                },
+                Opcode::INT_SIGNED_LESS_THAN => {
+                    let y = self.pop().word().s();
+                    let x = self.pop().word().s();
+                    self.push(x < y);
+                },
+                Opcode::INT_UNSIGNED_LESS_THAN => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().u();
+                    self.push(x < y);
+                },
+                Opcode::INT_SIGNED_DIVIDE_REMAINDER => {
+                    let y = self.pop().word().s();
+                    let x = self.pop().word().s();
+                    if x == 0 { Err("Division by zero")? }
+                    if x == i64::MIN && y == -1 { Err("Division overflow")? }
+                    // Rust's `/` rounds towards zero but Welly's rounds down.
+                    // Make `y` positive by maybe negating `x` and `y`.
+                    let y_sign = y >> 63;
+                    let x2 = (x ^ y_sign) - y_sign;
+                    let positive_y = (y ^ y_sign) - y_sign;
+                    // Make `x` positive by maybe inverting it.
+                    let x_sign = x2 >> 63;
+                    let positive_x = x2 ^ x_sign;
+                    // Compute quotient and maybe invert it.
+                    let q = (positive_x / positive_y) ^ x_sign;
+                    // Compute remainder, allowing harmless overflow.
+                    let r = (Wrapping(x) - Wrapping(q) * Wrapping(y)).0;
+                    self.push(q);
+                    self.push(r);
+                },
+                Opcode::INT_UNSIGNED_DIVIDE_REMAINDER => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().u();
+                    if x == 0 { Err("Division by zero")? }
+                    let q = x / y;
+                    let r = x - q * y;
+                    self.push(q);
+                    self.push(r);
+                },
+                Opcode::INT_SIGNED_SHIFT_RIGHT => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().s();
+                    self.push(x >> y)
+                },
+                Opcode::INT_UNSIGNED_SHIFT_RIGHT => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().u();
+                    self.push(x >> y)
+                },
+                Opcode::INT_SHIFT_LEFT => {
+                    let y = self.pop().word().u();
+                    let x = self.pop().word().w();
+                    self.push(x << (y as usize))
+                },
+                Opcode::INT_POWER => {
+                    let mut y = self.pop().word().u();
+                    let mut x = self.pop().word().w();
+                    // Rust's `pow()` method only takes `u32` exponents.
+                    let mut ret = Wrapping(1);
+                    if x == Wrapping(2) {
+                        ret <<= y as usize;
+                    } else {
+                        while y > 0 {
+                            if y & 1 != 0 {
+                                ret *= x;
+                                if ret == Wrapping(0) { break; }
+                            }
+                            x *= x;
+                            y >>= 1;
+                        }
+                    }
+                    self.push(ret);
                 },
                 _ => panic!("Undefined Opcode"),
             }

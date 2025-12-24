@@ -193,6 +193,10 @@ impl<T: Into<Word>> From<T> for Value {
     fn from(value: T) -> Self { Self::Word(value.into()) }
 }
 
+impl From<Bytes> for Value {
+    fn from(value: Bytes) -> Self { Self::Bytes(value) }
+}
+
 impl From<&[u8]> for Value {
     fn from(value: &[u8]) -> Self { Self::Bytes(value.into()) }
 }
@@ -203,6 +207,10 @@ impl From<&str> for Value {
 
 impl<const N: usize> From<[Value; N]> for Value {
     fn from(fields: [Value; N]) -> Self { Self::Values(Rc::new(fields)) }
+}
+
+impl From<&[Value]> for Value {
+    fn from(fields: &[Value]) -> Self { Self::Values(fields.into()) }
 }
 
 // ----------------------------------------------------------------------------
