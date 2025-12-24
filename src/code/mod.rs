@@ -1,8 +1,7 @@
-use std::rc::{Rc};
+use super::{Bytes, Map, Value};
 
-use super::{Map, Value};
-
-type Result<T> = std::result::Result<T, Rc<str>>;
+/// A `T` or a panic message represented as `Bytes`.
+type Result<T> = std::result::Result<T, Bytes>;
 
 // ----------------------------------------------------------------------------
 
@@ -97,12 +96,12 @@ impl<'a> Frame<'a> {
     fn fetch_usize(&mut self) -> usize { self.fetch_u64() as usize }
 
     /// Fetch an immediate `Rc<str>`.
-    fn fetch_str(&mut self) -> &'a Rc<str> { self.fetch().str() }
+    fn fetch_bytes(&mut self) -> &'a Bytes { self.fetch().bytes() }
 
     /// Fetch an immediate `&[Value]`.
-    fn fetch_block(&mut self) -> &'a [Value] { &**self.fetch().slice() }
+    fn fetch_block(&mut self) -> &'a [Value] { &**self.fetch().values() }
 
-    /// Fetch an immediate `&[Value]`.
+    /// Fetch an immediate `&Map<Value>`.
     fn fetch_map(&mut self) -> &'a Map<Value> { &**self.fetch().map() }
 
     /// Replace `ir` and `code` with `target`.
@@ -114,15 +113,15 @@ impl<'a> Frame<'a> {
             match self.next_opcode() {
                 Opcode::FETCH => { self.ir = self.fetch_u64(); },
                 Opcode::GET => {
-                    let name = self.fetch_str();
+                    let name = self.fetch_bytes();
                     self.r.push(self.v[name].clone()); }
                 Opcode::SET => {
                     let value = self.pop();
-                    let name = self.fetch_str();
+                    let name = self.fetch_bytes();
                     self.v.insert(name.clone(), value);
                 },
                 Opcode::SWAP => {
-                    let name = self.fetch_str();
+                    let name = self.fetch_bytes();
                     std::mem::swap(
                         self.r.last_mut().expect("Swap"),
                         self.v.get_mut(name).expect("Swap"),
@@ -133,10 +132,10 @@ impl<'a> Frame<'a> {
                     let cases = self.fetch_map();
                     let value = self.pop();
                     let [tag, payload] = value.unpack();
-                    self.jump(cases[tag.str()].slice());
+                    self.jump(cases[tag.bytes()].values());
                     self.r.push(payload.clone());
                 },
-                Opcode::PANIC => { return Err(self.fetch_str().clone()); },
+                Opcode::PANIC => { return Err(self.fetch_bytes().clone()); },
                 Opcode::JUMP => {
                     let block = self.fetch_block();
                     self.jump(block);
@@ -149,18 +148,18 @@ impl<'a> Frame<'a> {
                 Opcode::PACK => {
                     let arity = self.fetch_usize();
                     let tuple: Vec<Value> = self.r.drain((self.r.len() - arity) ..).collect();
-                    self.r.push(Value::Slice(tuple.into()));
+                    self.r.push(Value::Values(tuple.into()));
                 },
                 Opcode::UNPACK => {
                     let arity = self.fetch_usize();
                     let tuple = self.pop();
-                    let tuple = tuple.slice();
+                    let tuple = tuple.values();
                     assert_eq!(tuple.len(), arity);
                     self.r.extend(tuple.iter().cloned())
                 },
                 Opcode::CALL => {
                     let function = self.pop();
-                    let function = function.slice();
+                    let function = function.values();
                     let argument = self.pop();
                     self.r.push(call(&**function, argument)?);
                 },

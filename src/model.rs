@@ -2,28 +2,49 @@ use std::{fmt};
 use std::rc::{Rc};
 use std::num::{Wrapping};
 
+/// An array of bytes that is probably a `str` but not guaranteed valid UTF-8.
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub struct Bytes(pub Rc<[u8]>);
+
+impl std::fmt::Debug for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match std::str::from_utf8(&*self.0) {
+            Ok(string) => string.fmt(f),
+            Err(bytes) => bytes.fmt(f),
+        }
+    }
+}
+
+impl From<&[u8]> for Bytes {
+    fn from(value: &[u8]) -> Self { Self(value.into()) }
+}
+
+impl From<&str> for Bytes {
+    fn from(value: &str) -> Self { Self::from(value.as_bytes()) }
+}
+
 /// Represents a Welly constructor.
 ///
 /// In source code, a `Tag`s is written as a name consisting only of capital
 /// letters, digits and underscores and not beginning with a digit.
 // TODO: Represent as a 64-bit integer.
-pub type Tag = Rc<str>;
+pub type Tag = Bytes;
 
 /// Represents a Welly name.
 ///
 /// In source code, a `Name`s is written as letters, digits and underscores,
 /// not beginning with a digit, and not a [`Tag`].
 // TODO: Represent as a 64-bit integer.
-pub type Name = Rc<str>;
+pub type Name = Bytes;
 
 /// Represents a map from `Name` to `T`.
 pub type Map<T> = std::collections::HashMap<Name, T>;
 
+// ----------------------------------------------------------------------------
+
 /// A 64-bit integer type with wrapping arithmetic.
 #[allow(non_camel_case_types)]
 pub type w64 = Wrapping<u64>;
-
-// ----------------------------------------------------------------------------
 
 /// A 64-bit word that is not a pointer.
 #[derive(Copy, Clone)]
@@ -65,10 +86,10 @@ pub enum Value {
     Word(Word),
 
     /// Something reprented as a `str`, e.g. a `Tag` or `Str`.
-    Str(Rc<str>),
+    Bytes(Bytes),
 
     /// Something represented as multiple [`Value`]s, e.g. a tuple or array.
-    Slice(Rc<[Value]>),
+    Values(Rc<[Value]>),
 
     /// Something represented as a map, e.g. a `Module`.
     Map(Rc<Map<Value>>),
@@ -80,31 +101,31 @@ pub enum Value {
 impl Value {
     /// Assert that `self` is a `Word`.
     pub fn word(&self) -> Word {
-        let Self::Word(ret) = self else { panic!("{:?} is not a word", self); };
+        let Self::Word(ret) = self else { panic!("{:?} is not a Word", self); };
         *ret
     }
 
-    /// Assert that `self` is a `str`.
-    pub fn str(&self) -> &Rc<str> {
-        let Self::Str(ret) = self else { panic!("{:?} is not a str", self); };
+    /// Assert that `self` is a `[u8]`.
+    pub fn bytes(&self) -> &Bytes {
+        let Self::Bytes(ret) = self else { panic!("{:?} is not a Bytes", self); };
         ret
     }
 
     /// Assert that `self` is a `[Value]`.
-    pub fn slice(&self) -> &Rc<[Value]> {
-        let Self::Slice(ret) = self else { panic!("{:?} is not a slice", self); };
+    pub fn values(&self) -> &Rc<[Value]> {
+        let Self::Values(ret) = self else { panic!("{:?} is not a Values", self); };
         ret
     }
 
     /// Assert that `self` is a `Map`.
     pub fn map(&self) -> &Rc<Map<Value>> {
-        let Self::Map(ret) = self else { panic!("{:?} is not a map", self); };
+        let Self::Map(ret) = self else { panic!("{:?} is not a Map", self); };
         ret
     }
 
     /// Assert that `self` is a `Dynamic`.
     pub fn dynamic(&self) -> &Option<Rc<Dynamic>> {
-        let Self::Dynamic(ret) = self else { panic!("{:?} is not a dynamic", self); };
+        let Self::Dynamic(ret) = self else { panic!("{:?} is not a Dynamic", self); };
         ret
     }
 
@@ -114,7 +135,7 @@ impl Value {
 
     /// Assert that `self` is a tuple of size `N`.
     pub fn unpack<const N: usize>(&self) -> &[Value; N] {
-        let slice = self.slice();
+        let slice = self.values();
         let Ok(ret) = (&**slice).try_into() else {
             panic!("{:?} does not have length {}", slice, N);
         };
@@ -130,8 +151,8 @@ impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Word(word) => format!("{:x}", word.u()).fmt(f),
-            Self::Str(string) => string.fmt(f),
-            Self::Slice(values) => values.fmt(f),
+            Self::Bytes(bytes) => bytes.fmt(f),
+            Self::Values(values) => values.fmt(f),
             Self::Map(map) => map.fmt(f),
             Self::Dynamic(None) => { f.debug_tuple("UNINITIALISED").finish() },
             Self::Dynamic(Some(dynamic)) => dynamic.fmt(f),
@@ -143,12 +164,16 @@ impl<T: Into<Word>> From<T> for Value {
     fn from(value: T) -> Self { Self::Word(value.into()) }
 }
 
+impl From<&[u8]> for Value {
+    fn from(value: &[u8]) -> Self { Self::Bytes(value.into()) }
+}
+
 impl From<&str> for Value {
-    fn from(value: &str) -> Self { Self::Str(value.into()) }
+    fn from(value: &str) -> Self { Self::Bytes(value.into()) }
 }
 
 impl<const N: usize> From<[Value; N]> for Value {
-    fn from(fields: [Value; N]) -> Self { Self::Slice(Rc::new(fields)) }
+    fn from(fields: [Value; N]) -> Self { Self::Values(Rc::new(fields)) }
 }
 
 // ----------------------------------------------------------------------------
