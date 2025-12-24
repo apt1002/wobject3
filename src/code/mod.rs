@@ -211,8 +211,8 @@ impl Opcode {
     pub const FLOAT_NEGATE: Self = Opcode(Self::FLOAT_START + 0x03);
 
     pub const FLOAT_LESS_THAN: Self = Opcode(Self::FLOAT_START + 0x04);
-    pub const FLOAT_DIVIDE_REMAINDER: Self = Opcode(Self::FLOAT_START + 0x05);
-    pub const FLOAT_SHIFT_LEFT: Self = Opcode(Self::FLOAT_START + 0x06);
+    pub const FLOAT_LESS_THAN_OR_EQUAL: Self = Opcode(Self::FLOAT_START + 0x05);
+    pub const FLOAT_DIVIDE_REMAINDER: Self = Opcode(Self::FLOAT_START + 0x06);
     pub const FLOAT_POWER: Self = Opcode(Self::FLOAT_START + 0x07);
 }
 
@@ -567,6 +567,61 @@ impl<'a> Frame<'a> {
                             x *= x;
                             y >>= 1;
                         }
+                    }
+                    self.push(ret);
+                },
+                Opcode::FLOAT_ADD => {
+                    let y = self.pop().word().f();
+                    let x = self.pop().word().f();
+                    self.push(x + y);
+                },
+                Opcode::FLOAT_MULTIPLY => {
+                    let y = self.pop().word().f();
+                    let x = self.pop().word().f();
+                    self.push(x * y);
+                },
+                Opcode::FLOAT_EQUAL => {
+                    let y = self.pop().word().f();
+                    let x = self.pop().word().f();
+                    self.push(x == y);
+                },
+                Opcode::FLOAT_NEGATE => {
+                    let x = self.pop().word().f();
+                    self.push(-x);
+                },
+                Opcode::FLOAT_LESS_THAN => {
+                    let y = self.pop().word().f();
+                    let x = self.pop().word().f();
+                    self.push(x < y);
+                },
+                Opcode::FLOAT_LESS_THAN_OR_EQUAL => {
+                    let y = self.pop().word().f();
+                    let x = self.pop().word().f();
+                    self.push(x <= y);
+                },
+                Opcode::FLOAT_DIVIDE_REMAINDER => {
+                    let y = self.pop().word().f();
+                    let x = self.pop().word().f();
+                    let q = x / y;
+                    let r = x - q * y;
+                    self.push(q);
+                    self.push(r);
+                },
+                Opcode::FLOAT_POWER => {
+                    let mut y = self.pop().word().s();
+                    let mut x = self.pop().word().f();
+                    // Rust's `powi()` method only takes `u32` exponents.
+                    let mut ret = 1.0;
+                    if y < 0 {
+                        y = -y;
+                        x = 1.0 / x;
+                    }
+                    while y > 0 {
+                        if y & 1 != 0 {
+                            ret *= x;
+                        }
+                        x *= x;
+                        y >>= 1;
                     }
                     self.push(ret);
                 },
