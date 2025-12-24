@@ -111,16 +111,34 @@ impl Value {
         ret
     }
 
+    /// Assert that `self` is a mutable `[u8]`.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        let Self::Bytes(Bytes(ret)) = self else { panic!("{:?} is not a Bytes", self); };
+        Rc::get_mut(ret).expect("Bytes are not mutable")
+    }
+
     /// Assert that `self` is a `[Value]`.
     pub fn values(&self) -> &Rc<[Value]> {
         let Self::Values(ret) = self else { panic!("{:?} is not a Values", self); };
         ret
     }
 
+    /// Assert that `self` is a mutable `[Value]`.
+    pub fn values_mut(&mut self) -> &mut [Value] {
+        let Self::Values(ret) = self else { panic!("{:?} is not a Values", self); };
+        Rc::get_mut(ret).expect("Values are not mutable")
+    }
+
     /// Assert that `self` is a `Map`.
     pub fn map(&self) -> &Rc<Map<Value>> {
         let Self::Map(ret) = self else { panic!("{:?} is not a Map", self); };
         ret
+    }
+
+    /// Assert that `self` is a mutable `Map`.
+    pub fn map_mut(&mut self) -> &mut Map<Value> {
+        let Self::Map(ret) = self else { panic!("{:?} is not a Map", self); };
+        Rc::get_mut(ret).expect("Map is not mutable")
     }
 
     /// Assert that `self` is a `Dynamic`.
@@ -132,6 +150,17 @@ impl Value {
     /// A place-holder for uninitialised `Value`s.
     /// This is unlikely to be accidentally interepreted as a useful `Value`.
     pub const UNINITIALISED: Self = Self::Dynamic(None);
+
+    /// Make `self` mutable by unsharing the data it points to.
+    pub fn make_mut(&mut self) {
+        match self {
+            Self::Word(_) => {},
+            Self::Bytes(Bytes(bytes)) => { Rc::make_mut(bytes); },
+            Self::Values(values) => { Rc::make_mut(values); },
+            Self::Map(map) => { Rc::make_mut(map); },
+            Self::Dynamic(dynamic) => { dynamic.as_mut().map(Rc::make_mut); }
+        }
+    }
 
     /// Assert that `self` is a tuple of size `N`.
     pub fn unpack<const N: usize>(&self) -> &[Value; N] {
