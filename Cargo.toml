@@ -14,6 +14,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+welly-main = {path = "/home/apt1002/welly-main"}
 welly-parser = {path = "/home/apt1002/welly-parser"}
 ansi_term = "0.12.1"
 arrayvec = "0.7.6"
