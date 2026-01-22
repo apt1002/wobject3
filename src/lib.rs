@@ -8,6 +8,8 @@ pub mod built_in;
 mod code;
 pub use code::{Opcode, call};
 
+mod compiler;
+
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
