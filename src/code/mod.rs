@@ -1,6 +1,6 @@
 use std::num::{Wrapping};
 
-use super::{Bytes, Map, Value};
+use super::{Bytes, Map, Repr};
 
 /// A `T` or a panic message represented as `Bytes`.
 type Result<T> = std::result::Result<T, Bytes>;
@@ -9,9 +9,9 @@ type Result<T> = std::result::Result<T, Bytes>;
 
 /// The instruction set.
 ///
-/// Code is represented as a [`[Value]`]. The first `Value` is an opcode
-/// [`Value::Word`] consisting of `Self`s concatenated in little-endian order.
-/// Subsequent `Value`s are the immediate constants required by them.
+/// Code is represented as a [`[Repr]`]. The first `Repr` is an opcode
+/// [`Repr::Word`] consisting of `Self`s concatenated in little-endian order.
+/// Subsequent `Repr`s are the immediate constants required by them.
 /// Then there is another opcode word, and so on.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Opcode(u8);
@@ -44,7 +44,7 @@ impl Opcode {
     /// The target is an immediate constant `Slice`.
     pub const IF: Self = Self(0x06);
 
-    /// Pop a `Slice`. UNpack it as `(tag: Str, value: Value)`. Push `value`.
+    /// Pop a `Slice`. Unpack it as `(tag: Str, value: Repr)`. Push `value`.
     /// Jump to a block depending on the `tag`.
     /// The jump table is an immediate constant `Map`.
     pub const MATCH: Self = Self(0x07);
@@ -54,7 +54,7 @@ impl Opcode {
     /// Drop the top item of the stack.
     pub const DROP: Self = Self(0x08);
 
-    /// Push a literal [`Value`] onto the stack.
+    /// Push a literal [`Repr`] onto the stack.
     /// The literal is an immediate constant.
     pub const LITERAL: Self = Self(0x09);
 
@@ -84,11 +84,11 @@ impl Opcode {
 
     // Construction and destruction.
 
-    /// Pop `arity` `Value`s, make a fresh `Slice` containing them, push it.
+    /// Pop `arity` `Repr`s, make a fresh `Slice` containing them, push it.
     /// `arity` is an immedite constant `u64`.
     pub const PACK: Self = Self(0x10);
 
-    /// Pop a `Slice`, extract `arity` `Value`s from it, push them.
+    /// Pop a `Slice`, extract `arity` `Repr`s from it, push them.
     /// The arity is an immedite constant `u64`.
     pub const UNPACK: Self = Self(0x11);
 
@@ -160,7 +160,7 @@ impl Opcode {
     pub const ARRAY_NEW: Self = Opcode(Self::ARRAY_START + 0x04);
 
     /// Pop `t: Slice`. Pop `i: u64`. Pop `s: Slice`.
-    /// Set `t.length` `Value`s of `s` starting at `i` to `t`.
+    /// Set `t.length` `Repr`s of `s` starting at `i` to `t`.
     /// Push `s`.
     pub const ARRAY_SET_RANGE: Self = Opcode(Self::ARRAY_START + 0x05);
 
@@ -169,7 +169,7 @@ impl Opcode {
     pub const ARRAY_SHARE_RANGE: Self = Opcode(Self::ARRAY_START + 0x06);
 
     /// Pop `t: Slice`. Pop `i: u64`. Pop `s: Slice`.
-    /// Swap `l` `Value`s of `s` starting at `i` with `t`.
+    /// Swap `l` `Repr`s of `s` starting at `i` with `t`.
     /// Push `s`. Push `t`.
     pub const ARRAY_SWAP_RANGE: Self = Opcode(Self::ARRAY_START + 0x07);
 
@@ -225,13 +225,13 @@ struct Frame<'a> {
     ir: u64,
 
     /// Code to execute.
-    code: std::slice::Iter<'a, Value>,
+    code: std::slice::Iter<'a, Repr>,
 
     /// The data stack.
-    r: Vec<Value>,
+    r: Vec<Repr>,
 
     /// The local variables.
-    v: Map<Value>,
+    v: Map<Repr>,
 }
 
 impl<'a> Frame<'a> {
@@ -242,16 +242,16 @@ impl<'a> Frame<'a> {
     }
 
     /// Pop a value from the stack.
-    fn pop(&mut self) -> Value { self.r.pop().expect("Pop") }
+    fn pop(&mut self) -> Repr { self.r.pop().expect("Pop") }
 
     /// Push `value` into the stack.
-    fn push(&mut self, value: impl Into<Value>) { self.r.push(value.into()) }
+    fn push(&mut self, value: impl Into<Repr>) { self.r.push(value.into()) }
 
     /// Peek at the top value on the stack.
-    fn top(&mut self) -> &mut Value { self.r.last_mut().expect("Top") }
+    fn top(&mut self) -> &mut Repr { self.r.last_mut().expect("Top") }
 
-    /// Fetch an immediate `Value`.
-    fn fetch(&mut self) -> &'a Value { self.code.next().expect("Fetch") }
+    /// Fetch an immediate `Repr`.
+    fn fetch(&mut self) -> &'a Repr { self.code.next().expect("Fetch") }
 
     /// Fetch an immediate `u64`.
     fn fetch_u64(&mut self) -> u64 { self.fetch().word().u() }
@@ -262,17 +262,17 @@ impl<'a> Frame<'a> {
     /// Fetch an immediate `Rc<str>`.
     fn fetch_bytes(&mut self) -> &'a Bytes { self.fetch().bytes() }
 
-    /// Fetch an immediate `&[Value]`.
-    fn fetch_block(&mut self) -> &'a [Value] { &**self.fetch().values() }
+    /// Fetch an immediate `&[Repr]`.
+    fn fetch_block(&mut self) -> &'a [Repr] { &**self.fetch().values() }
 
-    /// Fetch an immediate `&Map<Value>`.
-    fn fetch_map(&mut self) -> &'a Map<Value> { &**self.fetch().map() }
+    /// Fetch an immediate `&Map<Repr>`.
+    fn fetch_map(&mut self) -> &'a Map<Repr> { &**self.fetch().map() }
 
     /// Replace `ir` and `code` with `target`.
-    fn jump(&mut self, target: &'a [Value]) { self.ir = 0; self.code = target.iter(); }
+    fn jump(&mut self, target: &'a [Repr]) { self.ir = 0; self.code = target.iter(); }
 
     /// Execute to compute a return value.
-    pub fn run(&mut self) -> Result<Value> {
+    pub fn run(&mut self) -> Result<Repr> {
         loop {
             match self.next_opcode() {
                 Opcode::FETCH => { self.ir = self.fetch_u64(); },
@@ -333,8 +333,8 @@ impl<'a> Frame<'a> {
                 },
                 Opcode::PACK => {
                     let arity = self.fetch_usize();
-                    let tuple: Vec<Value> = self.r.drain((self.r.len() - arity) ..).collect();
-                    self.push(Value::Values(tuple.into()));
+                    let tuple: Vec<Repr> = self.r.drain((self.r.len() - arity) ..).collect();
+                    self.push(Repr::Values(tuple.into()));
                 },
                 Opcode::UNPACK => {
                     let arity = self.fetch_usize();
@@ -354,7 +354,7 @@ impl<'a> Frame<'a> {
                     self.push(value);
                 },
                 Opcode::TAG => {
-                    let tag = Value::Bytes(self.fetch().bytes().clone());
+                    let tag = Repr::Bytes(self.fetch().bytes().clone());
                     let value = self.pop();
                     self.push([tag, value]);
                 },
@@ -430,7 +430,7 @@ impl<'a> Frame<'a> {
                 },
                 Opcode::ARRAY_NEW => {
                     let l = self.pop().word().u() as usize;
-                    self.push(Value::Values(std::iter::repeat(Value::UNINITIALISED).take(l).collect()));
+                    self.push(Repr::Values(std::iter::repeat(Repr::UNINITIALISED).take(l).collect()));
                 },
                 Opcode::ARRAY_SET_RANGE => {
                     let t = self.pop();
@@ -632,7 +632,7 @@ impl<'a> Frame<'a> {
 }
 
 /// Execute `code`.
-pub fn call(function: &[Value], argument: Value) -> Result<Value> {
+pub fn call(function: &[Repr], argument: Repr) -> Result<Repr> {
     let mut frame = Frame::default();
     frame.jump(function);
     frame.r.push(argument);

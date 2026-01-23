@@ -3,7 +3,7 @@ use std::convert::{TryFrom};
 use std::rc::{Rc};
 
 use super::{model};
-use model::{Bytes, Value, Type, Dynamic};
+use model::{Bytes, Repr, Type, Value};
 
 /// An error indicating that a Welly type is not of the expected form.
 #[derive(Debug, Copy, Clone)]
@@ -36,19 +36,19 @@ impl Primitive {
     }
 }
 
-impl<'a> TryFrom<&'a Dynamic> for Primitive {
+impl<'a> TryFrom<&'a Value> for Primitive {
     type Error = Nope;
 
-    fn try_from(value: &'a Dynamic) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         let None = value.type_ else { Err(Nope)? };
-        Ok(Self(value.value.bytes().clone()))
+        Ok(Self(value.repr.bytes().clone()))
     }
 }
 
-impl<'a> TryFrom<&'a Option<Rc<Dynamic>>> for Primitive {
+impl<'a> TryFrom<&'a Option<Rc<Value>>> for Primitive {
     type Error = Nope;
 
-    fn try_from(value: &'a Option<Rc<Dynamic>>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Option<Rc<Value>>) -> Result<Self, Self::Error> {
         let Some(value) = value else { Err(Nope)? };
         (&**value).try_into()
     }
@@ -58,7 +58,7 @@ impl<'a> TryFrom<&'a Option<Rc<Dynamic>>> for Primitive {
 
 /// Represents the type of a tuple.
 #[derive(Debug, Clone)]
-pub struct Tuple(pub Rc<[Value]>);
+pub struct Tuple(pub Rc<[Repr]>);
 
 impl Tuple {
     /// Returns the number of fields the tuple has.
@@ -70,19 +70,19 @@ impl Tuple {
     }
 }
 
-impl<'a> TryFrom<&'a Dynamic> for Tuple {
+impl<'a> TryFrom<&'a Value> for Tuple {
     type Error = Nope;
 
-    fn try_from(value: &'a Dynamic) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if !Primitive::try_from(&value.type_)?.matches("TUPLE") { Err(Nope)? }
-        Ok(Self(value.value.values().clone()))
+        Ok(Self(value.repr.values().clone()))
     }
 }
 
-impl<'a> TryFrom<&'a Option<Rc<Dynamic>>> for Tuple {
+impl<'a> TryFrom<&'a Option<Rc<Value>>> for Tuple {
     type Error = Nope;
 
-    fn try_from(value: &'a Option<Rc<Dynamic>>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Option<Rc<Value>>) -> Result<Self, Self::Error> {
         let Some(value) = value else { Err(Nope)? };
         (&**value).try_into()
     }

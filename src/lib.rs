@@ -1,5 +1,5 @@
 pub mod model;
-pub use model::{Bytes, Tag, Name, Map, Word, Value, Dynamic};
+pub use model::{Bytes, Tag, Name, Map, Word, Repr, Type, Value};
 
 pub mod type_;
 
