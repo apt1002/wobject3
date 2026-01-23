@@ -30,7 +30,15 @@ pub const PRIMITIVE: Type = None;
 pub struct Primitive(pub Bytes);
 
 impl Primitive {
-    /// Tests whether `self` equals `expected`.
+    /// Construct a `Primitive`.
+    pub fn new(name: &'static str) -> Self { Self(name.into()) }
+
+    /// Construct the Welly representation of `self`.
+    pub fn to_welly(self) -> Value {
+        Value {type_: PRIMITIVE, repr: Repr::Bytes(self.0)}
+    }
+
+        /// Tests whether `self` equals `expected`.
     fn matches(&self, expected: &'static str) -> bool {
         &*self.0.0 == expected.as_bytes()
     }
@@ -45,7 +53,7 @@ impl<'a> TryFrom<&'a Value> for Primitive {
     }
 }
 
-impl<'a> TryFrom<&'a Option<Rc<Value>>> for Primitive {
+impl<'a> TryFrom<&'a Type> for Primitive {
     type Error = Nope;
 
     fn try_from(value: &'a Option<Rc<Value>>) -> Result<Self, Self::Error> {
@@ -61,6 +69,19 @@ impl<'a> TryFrom<&'a Option<Rc<Value>>> for Primitive {
 pub struct Tuple(pub Rc<[Repr]>);
 
 impl Tuple {
+    /// Construct a `Tuple`.
+    pub fn new(fields: impl IntoIterator<Item=Type>) -> Self {
+        Self(fields.into_iter().map(Repr::Dynamic).collect())
+    }
+
+    /// Construct the Welly representation of `self`.
+    pub fn to_welly(self) -> Value {
+        Value {
+            type_: Some(Rc::new(Primitive::new("TUPLE").to_welly())),
+            repr: Repr::Values(self.0),
+        }
+    }
+
     /// Returns the number of fields the tuple has.
     pub fn len(&self) -> usize { self.0.len() }
 
@@ -79,7 +100,7 @@ impl<'a> TryFrom<&'a Value> for Tuple {
     }
 }
 
-impl<'a> TryFrom<&'a Option<Rc<Value>>> for Tuple {
+impl<'a> TryFrom<&'a Type> for Tuple {
     type Error = Nope;
 
     fn try_from(value: &'a Option<Rc<Value>>) -> Result<Self, Self::Error> {
