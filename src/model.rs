@@ -95,6 +95,8 @@ pub enum Value {
     Map(Rc<Map<Value>>),
 
     /// A [`Dynamic`].
+    ///
+    /// `Dynamic(None)` is also used to represent uninitialised data.
     Dynamic(Option<Rc<Dynamic>>),
 }
 
@@ -215,7 +217,13 @@ impl From<&[Value]> for Value {
 
 // ----------------------------------------------------------------------------
 
-/// Represents a dynamically typed value.
+/// Represents the type of a [`Value`].
+///
+/// Most `Value`s have a type, represented by a `Dynamic`.
+/// One particular `Value` has no type.
+pub type Type = Option<Rc<Dynamic>>;
+
+/// Represents a dynamically typed value: a value along with its type.
 ///
 /// The dynamic type is another `Dynamic`; it is therefore a linked list.
 #[derive(Clone)]

@@ -1,6 +1,8 @@
 pub mod model;
 pub use model::{Bytes, Tag, Name, Map, Word, Value, Dynamic};
 
+pub mod type_;
+
 pub mod built_in;
 
 mod code;
